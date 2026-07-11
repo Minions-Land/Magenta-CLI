@@ -54,7 +54,7 @@ TMP_DIR=$(mktemp -d)
 TMP_FILE="$TMP_DIR/magenta"
 
 # 匿名下载二进制（公开仓库无需认证）
-if ! curl -fsSL -o "$TMP_FILE" "$DOWNLOAD_URL"; then
+if ! curl -fL --progress-bar -o "$TMP_FILE" "$DOWNLOAD_URL"; then
   echo "❌ 下载失败"
   echo "请检查网络，或确认 ${DIST_REPO} 已发布 ${BINARY_NAME}"
   rm -rf "$TMP_DIR"
@@ -78,7 +78,7 @@ echo "📥 下载运行时资源 (~4MB)..."
 RESOURCES_URL="https://github.com/${DIST_REPO}/releases/download/${LATEST_TAG}/magenta-resources-universal.tar.gz"
 TMP_RESOURCES="$TMP_DIR/magenta-resources.tar.gz"
 
-if ! curl -fsSL -o "$TMP_RESOURCES" "$RESOURCES_URL"; then
+if ! curl -fL --progress-bar -o "$TMP_RESOURCES" "$RESOURCES_URL"; then
   echo "❌ 资源包下载失败"
   echo "请检查网络，或确认 ${DIST_REPO} 已发布 magenta-resources-universal.tar.gz"
   rm -rf "$TMP_DIR"
