@@ -3,8 +3,6 @@ set -e
 
 # 一键安装 Magenta - 从公开仓库匿名下载，无需 GitHub Token
 # 用法:
-#   curl -fsSL https://github.com/Minions-Land/Magenta-CLI/releases/latest/download/install.sh | bash
-# 或:
 #   curl -fsSL https://raw.githubusercontent.com/Minions-Land/Magenta-CLI/main/install.sh | bash
 
 DIST_REPO="${MAGENTA_DIST_REPO:-Minions-Land/Magenta-CLI}"
@@ -35,7 +33,7 @@ case "$PLATFORM" in
 esac
 
 echo "🔍 检测平台: $PLATFORM ($ARCH)"
-echo "📥 从公开仓库下载最新版本 (~73MB)..."
+echo "📥 从公开仓库下载最新版本 (~150-190MB)..."
 echo ""
 
 # 通过 API 匹配最新发布版本号（不依赖 /releases/latest 重定向，避免部分仓库未标记 latest 时 404）

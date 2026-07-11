@@ -16,25 +16,25 @@ The script will automatically detect your system and architecture, then download
 
 **macOS (Apple Silicon):**
 ```bash
-curl -fsSL https://github.com/Minions-Land/Magenta/releases/latest/download/magenta-macos-arm64 -o magenta && chmod +x magenta
+curl -fsSL https://github.com/Minions-Land/Magenta-CLI/releases/latest/download/magenta-macos-arm64 -o magenta && chmod +x magenta
 ```
 
 **macOS (Intel):**
 ```bash
-curl -fsSL https://github.com/Minions-Land/Magenta/releases/latest/download/magenta-macos-x64 -o magenta && chmod +x magenta
+curl -fsSL https://github.com/Minions-Land/Magenta-CLI/releases/latest/download/magenta-macos-x64 -o magenta && chmod +x magenta
 ```
 
 **Linux (x64):**
 ```bash
-curl -fsSL https://github.com/Minions-Land/Magenta/releases/latest/download/magenta-linux-x64 -o magenta && chmod +x magenta
+curl -fsSL https://github.com/Minions-Land/Magenta-CLI/releases/latest/download/magenta-linux-x64 -o magenta && chmod +x magenta
 ```
 
 **Windows (x64):**
 ```powershell
-Invoke-WebRequest -Uri "https://github.com/Minions-Land/Magenta/releases/latest/download/magenta-windows-x64.exe" -OutFile "magenta.exe"
+Invoke-WebRequest -Uri "https://github.com/Minions-Land/Magenta-CLI/releases/latest/download/magenta-windows-x64.exe" -OutFile "magenta.exe"
 ```
 
-Or download manually from the [Releases page](https://github.com/Minions-Land/Magenta/releases/latest).
+Or download manually from the [Releases page](https://github.com/Minions-Land/Magenta-CLI/releases/latest).
 
 ## 🔄 Update
 
