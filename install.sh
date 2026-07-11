@@ -18,9 +18,20 @@ PLATFORM=$(uname -s | tr '[:upper:]' '[:lower:]')
 ARCH=$(uname -m)
 
 case "$PLATFORM" in
-  darwin) BINARY_NAME="magenta-macos" ;;
-  linux)  BINARY_NAME="magenta-linux" ;;
-  *) echo "❌ 不支持的平台: $PLATFORM"; exit 1 ;;
+  darwin)
+    case "$ARCH" in
+      arm64|aarch64) BINARY_NAME="magenta-macos-arm64" ;;
+      x86_64|amd64)  BINARY_NAME="magenta-macos-x64" ;;
+      *) echo "❌ 不支持的 macOS 架构: $ARCH"; exit 1 ;;
+    esac
+    ;;
+  linux)
+    case "$ARCH" in
+      x86_64|amd64) BINARY_NAME="magenta-linux-x64" ;;
+      *) echo "❌ 不支持的 Linux 架构: $ARCH (目前仅支持 x64)"; exit 1 ;;
+    esac
+    ;;
+  *) echo "❌ 不支持的平台: $PLATFORM (Windows 请用 PowerShell 下载 magenta-windows-x64.exe)"; exit 1 ;;
 esac
 
 echo "🔍 检测平台: $PLATFORM ($ARCH)"
