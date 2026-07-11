@@ -7,7 +7,7 @@ set -e
 # 或:
 #   curl -fsSL https://raw.githubusercontent.com/Minions-Land/Magenta-CLI/main/install.sh | bash
 
-DIST_REPO="${MAGENTA_DIST_REPO:-Minions-Land/Magenta-CLI}"
+DIST_REPO="${MAGENTA_DIST_REPO:-Minions-Land/Magenta}"
 INSTALL_DIR="${HOME}/.local/bin"
 
 echo "📦 安装 Magenta..."
