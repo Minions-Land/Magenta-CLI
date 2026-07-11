@@ -64,35 +64,16 @@ echo "✅ 下载完成"
 echo ""
 
 # 下载资源包（优先平台特定版本，包含预编译的 process-tools 二进制）
-echo "📥 下载运行时资源 (~7MB)..."
-RESOURCES_PLATFORM=""
-case "$PLATFORM" in
-  darwin)
-    case "$ARCH" in
-      arm64|aarch64) RESOURCES_PLATFORM="macos-arm64" ;;
-      x86_64|amd64)  RESOURCES_PLATFORM="macos-x64" ;;
-    esac
-    ;;
-  linux)
-    case "$ARCH" in
-      x86_64|amd64) RESOURCES_PLATFORM="linux-x64" ;;
-    esac
-    ;;
-esac
-
-RESOURCES_URL="https://github.com/${DIST_REPO}/releases/latest/download/magenta-resources-${RESOURCES_PLATFORM}.tar.gz"
-RESOURCES_FALLBACK_URL="https://github.com/${DIST_REPO}/releases/latest/download/magenta-resources.tar.gz"
+# 下载运行时资源 (HCP 组件配置，process-tools 已内嵌到主程序)
+echo "📥 下载运行时资源 (~4MB)..."
+RESOURCES_URL="https://github.com/${DIST_REPO}/releases/latest/download/magenta-resources-universal.tar.gz"
 TMP_RESOURCES="$TMP_DIR/magenta-resources.tar.gz"
 
-if ! curl -fsSL -o "$TMP_RESOURCES" "$RESOURCES_URL" 2>/dev/null; then
-  echo "⚠️  平台特定资源包不存在，尝试通用包..."
-  if ! curl -fsSL -o "$TMP_RESOURCES" "$RESOURCES_FALLBACK_URL"; then
-    echo "❌ 资源包下载失败"
-    echo "请检查网络，或确认 ${DIST_REPO} 已发布资源包"
-    rm -rf "$TMP_DIR"
-    exit 1
-  fi
-  echo "⚠️  使用通用资源包：部分工具（如 web-search）可能需要手动编译 Rust 组件"
+if ! curl -fsSL -o "$TMP_RESOURCES" "$RESOURCES_URL"; then
+  echo "❌ 资源包下载失败"
+  echo "请检查网络，或确认 ${DIST_REPO} 已发布 magenta-resources-universal.tar.gz"
+  rm -rf "$TMP_DIR"
+  exit 1
 fi
 
 echo "✅ 资源包下载完成"
