@@ -63,6 +63,21 @@ fi
 echo "✅ 下载完成"
 echo ""
 
+# 下载资源包
+echo "📥 下载运行时资源 (~4MB)..."
+RESOURCES_URL="https://github.com/${DIST_REPO}/releases/latest/download/magenta-resources.tar.gz"
+TMP_RESOURCES="$TMP_DIR/magenta-resources.tar.gz"
+
+if ! curl -fsSL -o "$TMP_RESOURCES" "$RESOURCES_URL"; then
+  echo "❌ 资源包下载失败"
+  echo "请检查网络，或确认 ${DIST_REPO} 已发布 magenta-resources.tar.gz"
+  rm -rf "$TMP_DIR"
+  exit 1
+fi
+
+echo "✅ 资源包下载完成"
+echo ""
+
 # 安装
 echo "📂 安装到: $INSTALL_DIR"
 mkdir -p "$INSTALL_DIR"
@@ -76,6 +91,15 @@ fi
 
 mv "$TMP_FILE" "$INSTALL_DIR/magenta"
 chmod +x "$INSTALL_DIR/magenta"
+
+# 解压资源包到安装目录
+echo "📦 安装运行时资源..."
+if ! tar -xzf "$TMP_RESOURCES" -C "$INSTALL_DIR/"; then
+  echo "❌ 资源包解压失败"
+  rm -rf "$TMP_DIR"
+  exit 1
+fi
+
 rm -rf "$TMP_DIR"
 
 echo "✅ 安装成功！"
