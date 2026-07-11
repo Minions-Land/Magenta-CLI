@@ -38,7 +38,16 @@ echo "🔍 检测平台: $PLATFORM ($ARCH)"
 echo "📥 从公开仓库下载最新版本 (~73MB)..."
 echo ""
 
-DOWNLOAD_URL="https://github.com/${DIST_REPO}/releases/latest/download/${BINARY_NAME}"
+# 通过 API 匹配最新发布版本号（不依赖 /releases/latest 重定向，避免部分仓库未标记 latest 时 404）
+LATEST_TAG=$(curl -fsSL "https://api.github.com/repos/${DIST_REPO}/releases/latest" | grep -m1 '"tag_name"' | sed -E 's/.*"tag_name": *"([^"]+)".*/\1/')
+
+if [ -z "$LATEST_TAG" ]; then
+  echo "❌ 无法获取最新版本信息，请检查网络或确认 ${DIST_REPO} 已发布 release"
+  exit 1
+fi
+
+echo "📦 最新版本: $LATEST_TAG"
+DOWNLOAD_URL="https://github.com/${DIST_REPO}/releases/download/${LATEST_TAG}/${BINARY_NAME}"
 
 # 创建临时目录
 TMP_DIR=$(mktemp -d)
@@ -66,7 +75,7 @@ echo ""
 # 下载资源包（优先平台特定版本，包含预编译的 process-tools 二进制）
 # 下载运行时资源 (HCP 组件配置，process-tools 已内嵌到主程序)
 echo "📥 下载运行时资源 (~4MB)..."
-RESOURCES_URL="https://github.com/${DIST_REPO}/releases/latest/download/magenta-resources-universal.tar.gz"
+RESOURCES_URL="https://github.com/${DIST_REPO}/releases/download/${LATEST_TAG}/magenta-resources-universal.tar.gz"
 TMP_RESOURCES="$TMP_DIR/magenta-resources.tar.gz"
 
 if ! curl -fsSL -o "$TMP_RESOURCES" "$RESOURCES_URL"; then
