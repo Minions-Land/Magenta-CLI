@@ -419,6 +419,21 @@ if ! STAGED_VERSION=$("$STAGE_DIR/magenta" --version 2>/dev/null); then
   echo "❌ staged 二进制无法执行（--version 失败），安装中止（现有安装未被触碰）。" >&2
   exit 1
 fi
+# 验证 staged 版本与目标 tag 一致（防 binary/资源版本错配）
+WANT_VERSION="${LATEST_TAG#v}"
+STAGED_VERSION_CLEAN=$(printf '%s' "$STAGED_VERSION" | tr -d '[:space:]' | sed -E 's/^v//')
+if [ -n "$WANT_VERSION" ] && [ "$STAGED_VERSION_CLEAN" != "$WANT_VERSION" ]; then
+  echo "❌ staged 二进制版本 ($STAGED_VERSION_CLEAN) 与目标版本 ($WANT_VERSION) 不符，安装中止。" >&2
+  exit 1
+fi
+# 若资源包含 magenta-release.json，校对其版本与目标一致（binary与资源同版）
+if [ -f "$STAGE_DIR/magenta-release.json" ]; then
+  RES_VERSION=$(grep -oE '"version"[[:space:]]*:[[:space:]]*"[^"]+"' "$STAGE_DIR/magenta-release.json" | head -1 | sed -E 's/.*"([^"]+)"$/\1/' | sed -E 's/^v//')
+  if [ -n "$RES_VERSION" ] && [ -n "$WANT_VERSION" ] && [ "$RES_VERSION" != "$WANT_VERSION" ]; then
+    echo "❌ 资源包版本 ($RES_VERSION) 与目标版本 ($WANT_VERSION) 不符，安装中止。" >&2
+    exit 1
+  fi
+fi
 
 # 3) 备份旧二进制（保留 binary 回滚能力）
 BACKUP_BIN=""
