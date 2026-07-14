@@ -27,6 +27,20 @@ CHUNK_SIZE=$((8 * 1024 * 1024))          # 8MB 每片
 PER_TRY_TIMEOUT="${MAGENTA_TRY_TIMEOUT:-30}"
 MAX_TRIES="${MAGENTA_MAX_TRIES:-40}"
 
+# 校验数值型配置为正整数，避免 CHUNKS=0 导致并行循环永不前进、
+# 或 TIMEOUT/TRIES 非法值导致 curl/循环行为异常。
+require_positive_int() {
+  local varname="$1" value="$2"
+  case "$value" in
+    ''|*[!0-9]*)
+      echo "❌ $varname 必须是正整数，当前值: '$value'" >&2; exit 1 ;;
+  esac
+  [ "$value" -ge 1 ] 2>/dev/null || { echo "❌ $varname 必须 ≥ 1，当前值: '$value'" >&2; exit 1; }
+}
+require_positive_int "MAGENTA_CHUNKS" "$PARALLEL_CHUNKS"
+require_positive_int "MAGENTA_TRY_TIMEOUT" "$PER_TRY_TIMEOUT"
+require_positive_int "MAGENTA_MAX_TRIES" "$MAX_TRIES"
+
 # 内置镜像候选（用户可用 MAGENTA_GITHUB_MIRROR 覆盖为首选）。镜像会失效，脚本自动逐个尝试。
 BUILTIN_MIRRORS=(
   "https://ghfast.top"
@@ -94,6 +108,22 @@ echo "📦 最新版本: $LATEST_TAG"
 DL_PATH="${DIST_REPO}/releases/download/${LATEST_TAG}"
 DIRECT_BASE="https://github.com/${DL_PATH}"
 
+# 从 RELEASE_JSON 提取某资产的 API digest（sha256）。
+# RELEASE_JSON 是直连 api.github.com 经 TLS 获取的，所以这个 digest 是可信校验根，
+# 比从镜像下载 SHA256SUMS 更安全（镜像无法同时笡改资产和 api.github.com 的元数据）。
+asset_digest() {
+  local name="$1"
+  printf '%s' "$RELEASE_JSON" | tr ',' '\n' | grep -E '"(name|digest)"' \
+    | awk -v want="$name" '
+        /"name"/ { matched = (index($0, "\"" want "\"") > 0) }
+        /"digest"/ {
+          if (matched) {
+            match($0, /sha256:[0-9a-f]+/);
+            if (RSTART > 0) { print substr($0, RSTART + 7, RLENGTH - 7); exit }
+          }
+        }'
+}
+
 # 从 release JSON 解析某资产的 API url（走 api.github.com asset 端点，可拿签名 CDN 直链）
 asset_api_url() {
   local name="$1"
@@ -116,9 +146,10 @@ resolve_cdn_url() {
 }
 
 # 用带 Range 的请求探测某 URL 的资产总大小(content-range)，顺带验证该 URL 可用且支持分片
+# 加 -L 以跟随 302 重定向（github.com/releases/download 会 302 到 CDN）
 probe_size() {
   local url="$1"
-  curl -fsS -m "$PER_TRY_TIMEOUT" -r 0-0 -D - -o /dev/null "$url" 2>/dev/null \
+  curl -fsSL -m "$PER_TRY_TIMEOUT" -r 0-0 -D - -o /dev/null "$url" 2>/dev/null \
     | grep -i '^content-range:' | sed -E 's#.*/([0-9]+).*#\1#' | tr -d '\r' | head -1
 }
 
@@ -143,26 +174,15 @@ build_candidates() {
   return 0
 }
 
-# 从候选里挑第一个能在超时内返回 size 的 URL。输出: "url<TAB>size"
-select_source() {
-  local url size
-  for url in "${CANDIDATES[@]}"; do
-    size=$(probe_size "$url" 2>/dev/null || true)
-    if [ -n "$size" ] && [ "$size" -gt 0 ] 2>/dev/null; then
-      printf '%s\t%s\n' "$url" "$size"
-      return 0
-    fi
-  done
-  return 1
-}
-
 # ---------- aria2c 加速路径 ----------
 have_aria2() { [ "${MAGENTA_NO_ARIA2:-0}" != "1" ] && command -v aria2c >/dev/null 2>&1; }
 
 aria2_download() {
-  local url="$1" out="$2" dir base
+  local url="$1" out="$2" dir base tries
+  # aria2 max-tries: 限制在合理范围，避免无限卡住（0=无限）
+  tries=$(( MAX_TRIES > 10 ? 10 : MAX_TRIES ))
   dir=$(dirname "$out"); base=$(basename "$out")
-  aria2c -x16 -s16 -k1M --continue=true --retry-wait=2 --max-tries=0 \
+  aria2c -x16 -s16 -k1M --continue=true --retry-wait=2 --max-tries="$tries" \
     --timeout="$PER_TRY_TIMEOUT" --connect-timeout=15 --summary-interval=0 \
     --console-log-level=warn -d "$dir" -o "$base" "$url" >&2
 }
@@ -178,7 +198,7 @@ download_chunk() {
     try=$(( try + 1 ))
     [ "$try" -gt "$MAX_TRIES" ] && return 1
     local rstart=$(( start + have ))
-    curl -fsS -m "$PER_TRY_TIMEOUT" -r "${rstart}-${end}" -o "${out}.part" "$url" 2>/dev/null || true
+    curl -fsSL -m "$PER_TRY_TIMEOUT" -r "${rstart}-${end}" -o "${out}.part" "$url" 2>/dev/null || true
     [ -s "${out}.part" ] && cat "${out}.part" >> "$out"
     rm -f "${out}.part"
   done
@@ -216,7 +236,7 @@ resume_download() {
     [ -n "$target" ] && [ "$target" -gt 0 ] 2>/dev/null && [ "$have" -ge "$target" ] && return 0
     try=$(( try + 1 )); [ "$try" -gt "$MAX_TRIES" ] && { echo "" >&2; return 1; }
     prev=$have
-    curl -fsS -m "$PER_TRY_TIMEOUT" -C - -o "$out" "$url" 2>/dev/null || true
+    curl -fsSL -m "$PER_TRY_TIMEOUT" -C - -o "$out" "$url" 2>/dev/null || true
     have=$(filesize "$out")
     if [ -n "$target" ] && [ "$target" -gt 0 ] 2>/dev/null; then
       printf '\r  [%s] %d/%d bytes (第%d次续传)   ' "$name" "$have" "$target" "$try" >&2
@@ -228,43 +248,54 @@ resume_download() {
   done
 }
 
-# ---------- 下载单个资产（组合上述策略）----------
+# ---------- 下载单个资产（尝试所有候选，每个候选依次尝试 aria2/并行分片/单流）----------
 download_asset() {
   local name="$1" out="$2"
   echo "📥 [$name] 准备下载..."
   build_candidates "$name"
-  local sel url size
-  if sel=$(select_source); then
-    url="${sel%%$'\t'*}"; size="${sel##*$'\t'}"
-    local host; host=$(printf '%s' "$url" | sed -E 's#^(https?://[^/]+).*#\1#')
-    echo "   源: $host  大小: $(( size / 1024 / 1024 ))MB"
-  else
-    echo "❌ [$name] 所有下载源均不可用。请设置镜像后重试: export MAGENTA_GITHUB_MIRROR=https://ghfast.top"
-    exit 1
-  fi
 
-  # 1) aria2c
-  if have_aria2; then
-    echo "   使用 aria2c 多连接加速..."
-    : > "$out"; rm -f "$out"
-    if aria2_download "$url" "$out" && [ "$(filesize "$out")" = "$size" ]; then
-      return 0
+  local url size host attempt=0
+  for url in "${CANDIDATES[@]}"; do
+    attempt=$(( attempt + 1 ))
+    size=$(probe_size "$url" 2>/dev/null || true)
+    if [ -z "$size" ] || [ "$size" -le 0 ] 2>/dev/null; then
+      echo "   候选 $attempt: 探测失败，跳过" >&2
+      continue
     fi
-    echo "⚠️  aria2c 未完成，改用并行分片..." >&2
-  fi
+    host=$(printf '%s' "$url" | sed -E 's#^(https?://[^/]+).*#\1#')
+    echo "   候选 $attempt: $host  大小: $(( size / 1024 / 1024 ))MB"
 
-  # 2) 并行分片（不设 MAGENTA_NO_PARALLEL 时）
-  if [ "${MAGENTA_NO_PARALLEL:-0}" != "1" ]; then
+    # 1) aria2c
+    if have_aria2; then
+      echo "   尝试 aria2c 多连接加速..." >&2
+      : > "$out"; rm -f "$out"
+      if aria2_download "$url" "$out" && [ "$(filesize "$out")" = "$size" ]; then
+        return 0
+      fi
+      echo "   aria2c 未完成" >&2
+    fi
+
+    # 2) 并行分片（不设 MAGENTA_NO_PARALLEL 时）
+    if [ "${MAGENTA_NO_PARALLEL:-0}" != "1" ]; then
+      echo "   尝试并行分片下载..." >&2
+      : > "$out"
+      if parallel_download "$url" "$size" "$out"; then
+        return 0
+      fi
+      echo "   并行分片未完成" >&2
+    fi
+
+    # 3) 单流续传兜底
+    echo "   尝试单流断点续传..." >&2
     : > "$out"
-    if parallel_download "$url" "$size" "$out"; then
+    if resume_download "$url" "$out" "$size" "$name"; then
       return 0
     fi
-    echo "⚠️  分片下载未完成，改用单流断点续传..." >&2
-  fi
+    echo "   ⚠️  候选 $attempt 所有策略失败，尝试下一个候选源..." >&2
+  done
 
-  # 3) 单流续传兜底
-  : > "$out"
-  resume_download "$url" "$out" "$size" "$name"
+  echo "❌ [$name] 所有下载源均不可用。请设置镜像后重试: export MAGENTA_GITHUB_MIRROR=https://ghfast.top" >&2
+  exit 1
 }
 
 # ---------- 执行 ----------
@@ -299,19 +330,29 @@ for u in "${CANDIDATES[@]}"; do
 done
 
 # ---------- 校验（fail-closed：拿不到有效校验就中止，绝不跳过）----------
+# 优先级：1) API digest（直连 TLS 获取，最可信）  2) 可信来源的 SHA256SUMS
 verify_sum() {
   local file="$1" name="$2" want got
-  if [ ! -s "$SUMS_FILE" ]; then
-    echo "❌ 无法从可信来源获取 SHA256SUMS，无法校验 [$name] 完整性，安装中止。" >&2
-    echo "   受限网络请设置镜像后重试，或从 Releases 页面手动下载并核对校验和：" >&2
-    echo "   https://github.com/${DIST_REPO}/releases/latest" >&2
-    exit 1
+  # 优先从 API digest 获取（已通过 TLS 直连 api.github.com，无法被镜像篡改）
+  want=$(asset_digest "$name" 2>/dev/null || true)
+  if [ -n "$want" ]; then
+    echo "   使用 API digest 校验 [$name]..." >&2
+  else
+    # fallback: 从可信来源获取的 SHA256SUMS
+    if [ ! -s "$SUMS_FILE" ]; then
+      echo "❌ 无法获取 [$name] 的可信校验和（API digest 不可用且 SHA256SUMS 缺失），安装中止。" >&2
+      echo "   受限网络可尝试从 Releases 页面手动下载并核对：" >&2
+      echo "   https://github.com/${DIST_REPO}/releases/latest" >&2
+      exit 1
+    fi
+    want=$(grep -E "[[:space:]]${name}\$" "$SUMS_FILE" | awk '{print $1}' | head -1)
+    if [ -z "$want" ]; then
+      echo "❌ SHA256SUMS 中缺少 [$name] 条目且 API digest 不可用，无法校验完整性，安装中止。" >&2
+      exit 1
+    fi
+    echo "   使用 SHA256SUMS 校验 [$name]..." >&2
   fi
-  want=$(grep -E "[[:space:]]${name}\$" "$SUMS_FILE" | awk '{print $1}' | head -1)
-  if [ -z "$want" ]; then
-    echo "❌ SHA256SUMS 中缺少 [$name] 条目，无法校验完整性，安装中止。" >&2
-    exit 1
-  fi
+
   if command -v shasum >/dev/null 2>&1; then got=$(shasum -a 256 "$file" | awk '{print $1}')
   else got=$(sha256sum "$file" | awk '{print $1}'); fi
   if [ "$got" != "$want" ]; then
@@ -331,20 +372,89 @@ if [ "$FILE_SIZE" -lt 1000000 ]; then
   exit 1
 fi
 
-# ---------- 安装 ----------
+# ---------- 安装（先 staging 验证，再备份+交换，失败回滚）----------
 echo ""
 echo "📂 安装到: $INSTALL_DIR"
 mkdir -p "$INSTALL_DIR"
+
+# 1) 解压前先审查 tar 内容，拒绝非常规文件、绝对路径、.. 跳出（防恶意资源包）
+# 完整枚举到临时文件（避免 pipefail 下 grep 提前退出使 tar 收 SIGPIPE 而漏判）。
+RES_TYPES="$TMP_DIR/res-types"   # tar -tv：含文件类型
+RES_NAMES="$TMP_DIR/res-names"   # tar -t ：仅路径名
+if ! tar -tvzf "$RES_FILE" > "$RES_TYPES" 2>/dev/null; then
+  echo "❌ 资源包格式损坏或不可读，安装中止。" >&2
+  exit 1
+fi
+if ! tar -tzf "$RES_FILE" > "$RES_NAMES" 2>/dev/null; then
+  echo "❌ 资源包格式损坏或不可读，安装中止。" >&2
+  exit 1
+fi
+# 只允许 regular file(-) 与 directory(d)；拒绝 symlink/hardlink/device/fifo 等
+if grep -qE '^[^-d]' "$RES_TYPES"; then
+  echo "❌ 资源包含非常规文件类型（symlink/device 等），拒绝安装。" >&2
+  exit 1
+fi
+# 拒绝绝对路径与任何 '..' 路径段（含尾部 /..）
+if grep -qE '^/|(^|/)\.\.(/|$)' "$RES_NAMES"; then
+  echo "❌ 资源包含绝对路径或 .. 跳出，拒绝安装。" >&2
+  exit 1
+fi
+
+# 2) 先在 staging 组装完整布局（二进制 + 资源）并验证，再动现有安装
+STAGE_DIR="$TMP_DIR/stage"
+mkdir -p "$STAGE_DIR"
+if ! tar -xzf "$RES_FILE" -C "$STAGE_DIR" 2>/dev/null; then
+  echo "❌ 资源包解压失败，安装中止（现有安装未被触碰）。" >&2
+  exit 1
+fi
+if [ -z "$(ls -A "$STAGE_DIR" 2>/dev/null)" ]; then
+  echo "❌ 资源包解压后为空，安装中止（现有安装未被触碰）。" >&2
+  exit 1
+fi
+# 把二进制也放入 staging，形成完整布局
+cp "$BIN_FILE" "$STAGE_DIR/magenta" || { echo "❌ 无法写入 staging，安装中止。" >&2; exit 1; }
+chmod +x "$STAGE_DIR/magenta"
+# 在 staging 验证 binary 可执行且能报告版本（动 live 前发现损坏）
+if ! STAGED_VERSION=$("$STAGE_DIR/magenta" --version 2>/dev/null); then
+  echo "❌ staged 二进制无法执行（--version 失败），安装中止（现有安装未被触碰）。" >&2
+  exit 1
+fi
+
+# 3) 备份旧二进制（保留 binary 回滚能力）
+BACKUP_BIN=""
 if [ -f "$INSTALL_DIR/magenta" ]; then
   OLD_VERSION=$("$INSTALL_DIR/magenta" --version 2>/dev/null || echo "unknown")
   echo "📦 备份旧版本: $OLD_VERSION -> magenta.backup"
-  mv "$INSTALL_DIR/magenta" "$INSTALL_DIR/magenta.backup"
+  BACKUP_BIN="$INSTALL_DIR/magenta.backup"
+  mv "$INSTALL_DIR/magenta" "$BACKUP_BIN"
 fi
-mv "$BIN_FILE" "$INSTALL_DIR/magenta"
-chmod +x "$INSTALL_DIR/magenta"
+
+# 4) 安装二进制与资源；二进制失败则回滚旧二进制
+# 注：资源为原地拷贝，若在拷贝资源中途失败可能遗留半份资源，不是完全事务；
+# 但 staging 已验证 + binary 已可执行，实际失败概率很低。
+install_failed() {
+  echo "❌ $1，正在回滚二进制..." >&2
+  rm -f "$INSTALL_DIR/magenta"
+  [ -n "$BACKUP_BIN" ] && [ -f "$BACKUP_BIN" ] && mv "$BACKUP_BIN" "$INSTALL_DIR/magenta"
+  exit 1
+}
+
+cp "$STAGE_DIR/magenta" "$INSTALL_DIR/magenta" || install_failed "二进制安装失败"
+chmod +x "$INSTALL_DIR/magenta" || install_failed "chmod 失败"
 
 echo "📦 安装运行时资源..."
-tar -xzf "$RES_FILE" -C "$INSTALL_DIR/" || { echo "❌ 资源包解压失败"; exit 1; }
+# 从 staging 拷资源到安装目录（排除已单独处理的 magenta 二进制）
+for entry in "$STAGE_DIR"/*; do
+  [ "$(basename "$entry")" = "magenta" ] && continue
+  if ! cp -R "$entry" "$INSTALL_DIR/" 2>/dev/null; then
+    install_failed "资源安装失败"
+  fi
+done
+
+# 5) 成功，清理备份
+if [ -n "$BACKUP_BIN" ] && [ -f "$BACKUP_BIN" ]; then
+  rm -f "$BACKUP_BIN"
+fi
 
 echo "✅ 安装成功！"
 echo ""
