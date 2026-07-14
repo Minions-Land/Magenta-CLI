@@ -279,23 +279,44 @@ SUMS_FILE="$TMP_DIR/SHA256SUMS"
 download_asset "$BINARY_NAME" "$BIN_FILE"
 download_asset "$RESOURCES_NAME" "$RES_FILE"
 
-# SHA256SUMS 很小，直连/镜像任一可达即可
-build_candidates "SHA256SUMS"
+# SHA256SUMS 是信任根：必须来自可信来源，绝不走第三方镜像。
+# 否则镜像可同时替换资产和校验文件，使校验形同虚设。
+# 优先级：直连 github.com → API 签名 CDN 直链（都不经镜像）。
+build_trusted_sums_candidates() {
+  local name="SHA256SUMS"
+  CANDIDATES=()
+  CANDIDATES+=("https://github.com/${DL_PATH}/${name}")
+  local cdn
+  cdn=$(resolve_cdn_url "$(asset_api_url "$name")" 2>/dev/null || true)
+  [ -n "$cdn" ] && CANDIDATES+=("$cdn")
+  return 0
+}
+
+# SHA256SUMS 很小：只从可信来源（直连/API CDN）获取，不走镜像
+build_trusted_sums_candidates
 for u in "${CANDIDATES[@]}"; do
   if curl -fsSL -m "$PER_TRY_TIMEOUT" -o "$SUMS_FILE" "$u" 2>/dev/null && [ -s "$SUMS_FILE" ]; then break; fi
 done
 
-# ---------- 校验 ----------
+# ---------- 校验（fail-closed：拿不到有效校验就中止，绝不跳过）----------
 verify_sum() {
   local file="$1" name="$2" want got
-  [ -s "$SUMS_FILE" ] || { echo "⚠️  未获取到 SHA256SUMS，跳过 [$name] 校验" >&2; return 0; }
+  if [ ! -s "$SUMS_FILE" ]; then
+    echo "❌ 无法从可信来源获取 SHA256SUMS，无法校验 [$name] 完整性，安装中止。" >&2
+    echo "   受限网络请设置镜像后重试，或从 Releases 页面手动下载并核对校验和：" >&2
+    echo "   https://github.com/${DIST_REPO}/releases/latest" >&2
+    exit 1
+  fi
   want=$(grep -E "[[:space:]]${name}\$" "$SUMS_FILE" | awk '{print $1}' | head -1)
-  [ -n "$want" ] || { echo "⚠️  SHA256SUMS 无 [$name] 条目，跳过校验" >&2; return 0; }
+  if [ -z "$want" ]; then
+    echo "❌ SHA256SUMS 中缺少 [$name] 条目，无法校验完整性，安装中止。" >&2
+    exit 1
+  fi
   if command -v shasum >/dev/null 2>&1; then got=$(shasum -a 256 "$file" | awk '{print $1}')
   else got=$(sha256sum "$file" | awk '{print $1}'); fi
   if [ "$got" != "$want" ]; then
     echo "❌ [$name] 校验失败: 期望 $want 实际 $got"
-    echo "   （若你是从 v0.0.12 之前的旧版本升级，请直接用本安装脚本重装。）"
+    echo "   （若你是从早期版本升级，请直接用本安装脚本重装。）"
     exit 1
   fi
   echo "✅ [$name] 校验通过"
