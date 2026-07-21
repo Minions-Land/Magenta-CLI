@@ -1,0 +1,136 @@
+name: Verify Published Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: Exact published release tag (vMAJOR.MINOR.PATCH)
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: verify-published-release-${{ inputs.release_tag }}
+  cancel-in-progress: false
+
+jobs:
+  windows-runtime:
+    runs-on: windows-latest
+    timeout-minutes: 20
+    env:
+      GH_TOKEN: ${{ github.token }}
+      RELEASE_TAG: ${{ inputs.release_tag }}
+    steps:
+      - name: Verify receipts, installer, and native runtime
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $tag = $env:RELEASE_TAG
+          if ($tag -cnotmatch '^v(?<version>0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$') {
+            throw "Release tag must be exact vMAJOR.MINOR.PATCH: $tag"
+          }
+          $version = $Matches.version + "." + $Matches[2] + "." + $Matches[3]
+
+          $downloadDirectory = Join-Path $env:RUNNER_TEMP "magenta-release"
+          $installDirectory = Join-Path $env:RUNNER_TEMP "magenta-install"
+          New-Item -ItemType Directory -Force -Path $downloadDirectory | Out-Null
+
+          $release = gh api "repos/Minions-Land/Magenta-CLI/releases/tags/$tag" | ConvertFrom-Json
+          if ($LASTEXITCODE -ne 0) { throw "Unable to fetch release metadata for $tag" }
+          if ($release.draft -or $release.prerelease) { throw "Release must be published and stable" }
+
+          gh release download $tag --repo Minions-Land/Magenta-CLI --dir $downloadDirectory
+          if ($LASTEXITCODE -ne 0) { throw "Unable to download release assets for $tag" }
+
+          $expectedAssets = @(
+            "SHA256SUMS"
+            "SOURCE_COMMIT"
+            "install.ps1"
+            "magenta-linux-x64"
+            "magenta-macos-arm64"
+            "magenta-macos-x64"
+            "magenta-resources-universal.tar.gz"
+            "magenta-windows-x64.exe"
+          ) | Sort-Object
+          $actualAssets = @(Get-ChildItem -LiteralPath $downloadDirectory -File | ForEach-Object Name | Sort-Object)
+          if (Compare-Object $expectedAssets $actualAssets) {
+            throw "Downloaded asset set does not exactly match the release contract"
+          }
+
+          $metadataByName = @{}
+          foreach ($asset in $release.assets) { $metadataByName[$asset.name] = $asset }
+          foreach ($name in $expectedAssets) {
+            $path = Join-Path $downloadDirectory $name
+            $metadata = $metadataByName[$name]
+            if ($null -eq $metadata) { throw "Release metadata is missing $name" }
+            if ((Get-Item -LiteralPath $path).Length -ne $metadata.size) { throw "Asset size mismatch: $name" }
+            if ($metadata.digest -cnotmatch '^sha256:(?<hash>[0-9a-f]{64})$') {
+              throw "Asset lacks a valid GitHub SHA-256 digest: $name"
+            }
+            $actualHash = (Get-FileHash -LiteralPath $path -Algorithm SHA256).Hash.ToLowerInvariant()
+            if ($actualHash -cne $Matches.hash) { throw "GitHub digest mismatch: $name" }
+          }
+
+          $manifestExpected = @($expectedAssets | Where-Object { $_ -ne "SHA256SUMS" }) | Sort-Object
+          $manifestEntries = @{}
+          foreach ($line in [IO.File]::ReadAllLines((Join-Path $downloadDirectory "SHA256SUMS"))) {
+            if ($line -cnotmatch '^(?<hash>[0-9a-f]{64})  (?<name>[A-Za-z0-9._-]+)$') {
+              throw "Malformed SHA256SUMS line"
+            }
+            if ($manifestEntries.ContainsKey($Matches.name)) { throw "Duplicate SHA256SUMS entry" }
+            $manifestEntries[$Matches.name] = $Matches.hash
+          }
+          $manifestActual = @($manifestEntries.Keys | Sort-Object)
+          if (Compare-Object $manifestExpected $manifestActual) {
+            throw "SHA256SUMS does not cover the exact release payload"
+          }
+          foreach ($name in $manifestExpected) {
+            $actualHash = (Get-FileHash -LiteralPath (Join-Path $downloadDirectory $name) -Algorithm SHA256).Hash.ToLowerInvariant()
+            if ($actualHash -cne $manifestEntries[$name]) { throw "Manifest digest mismatch: $name" }
+          }
+
+          $sourceCommit = (Get-Content -Raw -LiteralPath (Join-Path $downloadDirectory "SOURCE_COMMIT")).Trim()
+          if ($sourceCommit -cnotmatch '^[0-9a-f]{40}$') { throw "SOURCE_COMMIT is not a full commit ID" }
+
+          & (Join-Path $downloadDirectory "install.ps1") `
+            -InstallDir $installDirectory `
+            -Version $tag `
+            -Repository "Minions-Land/Magenta-CLI" `
+            -NoPath
+          if ($LASTEXITCODE -ne 0) { throw "install.ps1 failed" }
+
+          $binary = Join-Path $installDirectory "magenta.exe"
+          $reportedVersion = (& $binary --version).Trim()
+          if ($LASTEXITCODE -ne 0 -or $reportedVersion -cne $version) {
+            throw "Installed version mismatch: expected $version, got $reportedVersion"
+          }
+          & $binary --help | Out-Null
+          if ($LASTEXITCODE -ne 0) { throw "Installed Magenta binary failed --help" }
+
+          $processTools = Join-Path $installDirectory "_magenta/process-tools/target/release/magenta-process-tools.exe"
+          if (-not (Test-Path -LiteralPath $processTools -PathType Leaf)) { throw "process-tools was not extracted" }
+          & $processTools --help | Out-Null
+          if ($LASTEXITCODE -ne 0) { throw "process-tools failed --help" }
+
+          $clipboard = Join-Path $installDirectory "runtime/node_modules/@mariozechner/clipboard-win32-x64-msvc/clipboard.win32-x64-msvc.node"
+          node -e 'const binding = require(process.argv[1]); if (typeof binding.getText !== "function") process.exit(1)' $clipboard
+          if ($LASTEXITCODE -ne 0) { throw "Windows clipboard native binding failed to load" }
+
+          & (Join-Path $downloadDirectory "install.ps1") -InstallDir $installDirectory -NoPath -Uninstall
+          if ($LASTEXITCODE -ne 0 -or (Test-Path -LiteralPath $installDirectory)) {
+            throw "install.ps1 uninstall verification failed"
+          }
+
+          Write-Host "verified_tag=$tag"
+          Write-Host "verified_version=$version"
+          Write-Host "source_commit=$sourceCommit"
+          Write-Host "assets=8"
+          Write-Host "api_digests=ok"
+          Write-Host "manifest=ok"
+          Write-Host "windows_install=ok"
+          Write-Host "windows_binary=ok"
+          Write-Host "windows_process_tools=ok"
+          Write-Host "windows_clipboard=ok"
+          Write-Host "windows_uninstall=ok"
