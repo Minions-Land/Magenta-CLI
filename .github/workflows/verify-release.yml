@@ -31,7 +31,7 @@ jobs:
           if ($tag -cnotmatch '^v(?<version>0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$') {
             throw "Release tag must be exact vMAJOR.MINOR.PATCH: $tag"
           }
-          $version = $Matches.version + "." + $Matches[2] + "." + $Matches[3]
+          $version = $tag.Substring(1)
 
           $downloadDirectory = Join-Path $env:RUNNER_TEMP "magenta-release"
           $installDirectory = Join-Path $env:RUNNER_TEMP "magenta-install"
