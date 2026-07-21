@@ -13,8 +13,9 @@ on:
         default: false
         type: boolean
 
+# Draft releases require push-equivalent release access; the token is removed before executing assets.
 permissions:
-  contents: read
+  contents: write
 
 concurrency:
   group: verify-published-release-${{ inputs.release_tag }}
@@ -43,15 +44,27 @@ jobs:
           $installDirectory = Join-Path $env:RUNNER_TEMP "magenta-install"
           New-Item -ItemType Directory -Force -Path $downloadDirectory | Out-Null
 
-          $release = gh api "repos/Minions-Land/Magenta-CLI/releases/tags/$tag" | ConvertFrom-Json
-          if ($LASTEXITCODE -ne 0) { throw "Unable to fetch release metadata for $tag" }
+          if ($env:ALLOW_DRAFT -ceq "true") {
+            $pages = gh api --paginate --slurp "repos/Minions-Land/Magenta-CLI/releases?per_page=100" | ConvertFrom-Json
+            if ($LASTEXITCODE -ne 0) { throw "Unable to list release metadata for $tag" }
+            $matches = @()
+            foreach ($page in $pages) {
+              foreach ($candidate in $page) {
+                if ($candidate.tag_name -ceq $tag) { $matches += $candidate }
+              }
+            }
+            if ($matches.Count -ne 1) {
+              throw "Expected exactly one release metadata record for $tag, found $($matches.Count)"
+            }
+            $release = $matches[0]
+          } else {
+            $release = gh api "repos/Minions-Land/Magenta-CLI/releases/tags/$tag" | ConvertFrom-Json
+            if ($LASTEXITCODE -ne 0) { throw "Unable to fetch release metadata for $tag" }
+          }
           if ($release.prerelease) { throw "Release must not be a prerelease" }
           if ($release.draft -and $env:ALLOW_DRAFT -cne "true") {
             throw "Draft release verification requires allow_draft=true"
           }
-
-          gh release download $tag --repo Minions-Land/Magenta-CLI --dir $downloadDirectory
-          if ($LASTEXITCODE -ne 0) { throw "Unable to download release assets for $tag" }
 
           $expectedAssets = @(
             "SHA256SUMS"
@@ -63,17 +76,43 @@ jobs:
             "magenta-resources-universal.tar.gz"
             "magenta-windows-x64.exe"
           ) | Sort-Object
+          $metadataNames = @($release.assets | ForEach-Object name | Sort-Object)
+          if (Compare-Object $expectedAssets $metadataNames) {
+            throw "Release metadata asset set does not exactly match the release contract"
+          }
+
+          $metadataByName = @{}
+          foreach ($asset in $release.assets) {
+            if ($metadataByName.ContainsKey($asset.name)) { throw "Duplicate release asset metadata: $($asset.name)" }
+            if ($asset.state -cne "uploaded") { throw "Release asset is not uploaded: $($asset.name)" }
+            $metadataByName[$asset.name] = $asset
+          }
+          $downloadHeaders = @{
+            Authorization = "Bearer $env:GH_TOKEN"
+            Accept = "application/octet-stream"
+            "X-GitHub-Api-Version" = "2022-11-28"
+          }
+          try {
+            foreach ($name in $expectedAssets) {
+              $metadata = $metadataByName[$name]
+              $path = Join-Path $downloadDirectory $name
+              Invoke-WebRequest `
+                -UseBasicParsing `
+                -Uri "https://api.github.com/repos/Minions-Land/Magenta-CLI/releases/assets/$($metadata.id)" `
+                -Headers $downloadHeaders `
+                -OutFile $path
+            }
+          } finally {
+            Remove-Item Env:GH_TOKEN -ErrorAction SilentlyContinue
+          }
+
           $actualAssets = @(Get-ChildItem -LiteralPath $downloadDirectory -File | ForEach-Object Name | Sort-Object)
           if (Compare-Object $expectedAssets $actualAssets) {
             throw "Downloaded asset set does not exactly match the release contract"
           }
-
-          $metadataByName = @{}
-          foreach ($asset in $release.assets) { $metadataByName[$asset.name] = $asset }
           foreach ($name in $expectedAssets) {
             $path = Join-Path $downloadDirectory $name
             $metadata = $metadataByName[$name]
-            if ($null -eq $metadata) { throw "Release metadata is missing $name" }
             if ((Get-Item -LiteralPath $path).Length -ne $metadata.size) { throw "Asset size mismatch: $name" }
             if ($metadata.digest -cnotmatch '^sha256:(?<hash>[0-9a-f]{64})$') {
               throw "Asset lacks a valid GitHub SHA-256 digest: $name"
