@@ -4,9 +4,14 @@ on:
   workflow_dispatch:
     inputs:
       release_tag:
-        description: Exact published release tag (vMAJOR.MINOR.PATCH)
+        description: Exact release tag (vMAJOR.MINOR.PATCH)
         required: true
         type: string
+      allow_draft:
+        description: Permit verification before publication
+        required: true
+        default: false
+        type: boolean
 
 permissions:
   contents: read
@@ -22,6 +27,7 @@ jobs:
     env:
       GH_TOKEN: ${{ github.token }}
       RELEASE_TAG: ${{ inputs.release_tag }}
+      ALLOW_DRAFT: ${{ inputs.allow_draft }}
     steps:
       - name: Verify receipts, installer, and native runtime
         shell: pwsh
@@ -39,7 +45,10 @@ jobs:
 
           $release = gh api "repos/Minions-Land/Magenta-CLI/releases/tags/$tag" | ConvertFrom-Json
           if ($LASTEXITCODE -ne 0) { throw "Unable to fetch release metadata for $tag" }
-          if ($release.draft -or $release.prerelease) { throw "Release must be published and stable" }
+          if ($release.prerelease) { throw "Release must not be a prerelease" }
+          if ($release.draft -and $env:ALLOW_DRAFT -cne "true") {
+            throw "Draft release verification requires allow_draft=true"
+          }
 
           gh release download $tag --repo Minions-Land/Magenta-CLI --dir $downloadDirectory
           if ($LASTEXITCODE -ne 0) { throw "Unable to download release assets for $tag" }
@@ -94,12 +103,33 @@ jobs:
           $sourceCommit = (Get-Content -Raw -LiteralPath (Join-Path $downloadDirectory "SOURCE_COMMIT")).Trim()
           if ($sourceCommit -cnotmatch '^[0-9a-f]{40}$') { throw "SOURCE_COMMIT is not a full commit ID" }
 
-          & (Join-Path $downloadDirectory "install.ps1") `
-            -InstallDir $installDirectory `
-            -Version $tag `
-            -Repository "Minions-Land/Magenta-CLI" `
-            -NoPath
-          if ($LASTEXITCODE -ne 0) { throw "install.ps1 failed" }
+          $assetServer = Start-Process -FilePath "python" -ArgumentList @(
+            "-m", "http.server", "8766", "--bind", "127.0.0.1", "--directory", $downloadDirectory
+          ) -PassThru -WindowStyle Hidden
+          try {
+            $ready = $false
+            foreach ($attempt in 1..50) {
+              try {
+                Invoke-WebRequest -UseBasicParsing -Uri "http://127.0.0.1:8766/SHA256SUMS" -OutFile (Join-Path $env:RUNNER_TEMP "server-probe")
+                $ready = $true
+                break
+              } catch {
+                Start-Sleep -Milliseconds 100
+              }
+            }
+            if (-not $ready) { throw "Local verified-asset server did not become ready" }
+
+            & (Join-Path $downloadDirectory "install.ps1") `
+              -InstallDir $installDirectory `
+              -Version $tag `
+              -Repository "Minions-Land/Magenta-CLI" `
+              -AssetBaseUrl "http://127.0.0.1:8766" `
+              -NoPath
+            if ($LASTEXITCODE -ne 0) { throw "install.ps1 failed" }
+          } finally {
+            Stop-Process -Id $assetServer.Id -Force -ErrorAction SilentlyContinue
+            Wait-Process -Id $assetServer.Id -ErrorAction SilentlyContinue
+          }
 
           $binary = Join-Path $installDirectory "magenta.exe"
           $reportedVersion = (& $binary --version).Trim()
@@ -125,6 +155,7 @@ jobs:
 
           Write-Host "verified_tag=$tag"
           Write-Host "verified_version=$version"
+          Write-Host "verified_draft=$($release.draft)"
           Write-Host "source_commit=$sourceCommit"
           Write-Host "assets=8"
           Write-Host "api_digests=ok"
