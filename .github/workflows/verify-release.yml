@@ -13,9 +13,11 @@ on:
         default: false
         type: boolean
 
-# Draft releases require push-equivalent release access; the token is removed before executing assets.
+# Published-release metadata is read-only by default. Draft release metadata is
+# visible only with push-equivalent access, so that permission is scoped to the
+# two verification jobs that support the explicit allow_draft gate.
 permissions:
-  contents: write
+  contents: read
 
 concurrency:
   group: verify-published-release-${{ inputs.release_tag }}
@@ -23,15 +25,36 @@ concurrency:
 
 jobs:
   windows-runtime:
+    permissions:
+      contents: write
     runs-on: windows-latest
     timeout-minutes: 20
     env:
-      GH_TOKEN: ${{ github.token }}
       RELEASE_TAG: ${{ inputs.release_tag }}
       ALLOW_DRAFT: ${{ inputs.allow_draft }}
     steps:
+      - name: Checkout release verifier
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
+        with:
+          persist-credentials: false
+
+      - name: Test verifier and public installation entrypoints
+        shell: pwsh
+        run: |
+          node --test .github/scripts/*.test.mjs
+          if ($LASTEXITCODE -ne 0) { throw "Release verifier tests failed" }
+          node .github/scripts/verify-distribution-entrypoints.mjs
+          if ($LASTEXITCODE -ne 0) { throw "Distribution entrypoint policy failed" }
+          node .github/scripts/verify-release-workflow-policy.mjs
+          if ($LASTEXITCODE -ne 0) { throw "Release workflow policy failed" }
+          node .github/scripts/verify-ci-workflow-policy.mjs
+          if ($LASTEXITCODE -ne 0) { throw "Distribution CI policy failed" }
+
       - name: Verify receipts, installer, and native runtime
         shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+          MAGENTA_SOURCE_READ_TOKEN: ${{ secrets.MAGENTA_SOURCE_READ_TOKEN }}
         run: |
           $ErrorActionPreference = "Stop"
           $tag = $env:RELEASE_TAG
@@ -39,32 +62,11 @@ jobs:
             throw "Release tag must be exact vMAJOR.MINOR.PATCH: $tag"
           }
           $version = $tag.Substring(1)
+          $requiresV0030Contract = ([Version]$version -ge [Version]"0.0.30")
 
           $downloadDirectory = Join-Path $env:RUNNER_TEMP "magenta-release"
           $installDirectory = Join-Path $env:RUNNER_TEMP "magenta-install"
           New-Item -ItemType Directory -Force -Path $downloadDirectory | Out-Null
-
-          if ($env:ALLOW_DRAFT -ceq "true") {
-            $pages = gh api --paginate --slurp "repos/Minions-Land/Magenta-CLI/releases?per_page=100" | ConvertFrom-Json
-            if ($LASTEXITCODE -ne 0) { throw "Unable to list release metadata for $tag" }
-            $matches = @()
-            foreach ($page in $pages) {
-              foreach ($candidate in $page) {
-                if ($candidate.tag_name -ceq $tag) { $matches += $candidate }
-              }
-            }
-            if ($matches.Count -ne 1) {
-              throw "Expected exactly one release metadata record for $tag, found $($matches.Count)"
-            }
-            $release = $matches[0]
-          } else {
-            $release = gh api "repos/Minions-Land/Magenta-CLI/releases/tags/$tag" | ConvertFrom-Json
-            if ($LASTEXITCODE -ne 0) { throw "Unable to fetch release metadata for $tag" }
-          }
-          if ($release.prerelease) { throw "Release must not be a prerelease" }
-          if ($release.draft -and $env:ALLOW_DRAFT -cne "true") {
-            throw "Draft release verification requires allow_draft=true"
-          }
 
           $expectedAssets = @(
             "SHA256SUMS"
@@ -75,53 +77,35 @@ jobs:
             "magenta-macos-x64"
             "magenta-resources-universal.tar.gz"
             "magenta-windows-x64.exe"
-          ) | Sort-Object
-          $metadataNames = @($release.assets | ForEach-Object name | Sort-Object)
-          if (Compare-Object $expectedAssets $metadataNames) {
-            throw "Release metadata asset set does not exactly match the release contract"
+          )
+          if ($requiresV0030Contract) {
+            $expectedAssets += @("install.sh", "macos-signing-receipt.json")
           }
+          $expectedAssets = @($expectedAssets | Sort-Object)
 
-          $metadataByName = @{}
-          foreach ($asset in $release.assets) {
-            if ($metadataByName.ContainsKey($asset.name)) { throw "Duplicate release asset metadata: $($asset.name)" }
-            if ($asset.state -cne "uploaded") { throw "Release asset is not uploaded: $($asset.name)" }
-            $metadataByName[$asset.name] = $asset
-          }
-          $downloadHeaders = @{
-            Authorization = "Bearer $env:GH_TOKEN"
-            Accept = "application/octet-stream"
-            "X-GitHub-Api-Version" = "2022-11-28"
-          }
           try {
-            foreach ($name in $expectedAssets) {
-              $metadata = $metadataByName[$name]
-              $path = Join-Path $downloadDirectory $name
-              Invoke-WebRequest `
-                -UseBasicParsing `
-                -Uri "https://api.github.com/repos/Minions-Land/Magenta-CLI/releases/assets/$($metadata.id)" `
-                -Headers $downloadHeaders `
-                -OutFile $path
-            }
+            $summaryJson = & node (Join-Path $env:GITHUB_WORKSPACE ".github/scripts/prepare-release-assets.mjs") `
+              --allow-draft $env:ALLOW_DRAFT `
+              --release-dir $downloadDirectory `
+              --release-tag $tag `
+              --repository "Minions-Land/Magenta-CLI"
+            if ($LASTEXITCODE -ne 0) { throw "Bounded release asset preparation failed" }
           } finally {
             Remove-Item Env:GH_TOKEN -ErrorAction SilentlyContinue
+          }
+          $release = $summaryJson | ConvertFrom-Json
+          if ($release.tag -cne $tag -or [int]$release.assetCount -ne $expectedAssets.Count) {
+            throw "Release asset preparation summary does not match the requested contract"
           }
 
           $actualAssets = @(Get-ChildItem -LiteralPath $downloadDirectory -File | ForEach-Object Name | Sort-Object)
           if (Compare-Object $expectedAssets $actualAssets) {
             throw "Downloaded asset set does not exactly match the release contract"
           }
-          foreach ($name in $expectedAssets) {
-            $path = Join-Path $downloadDirectory $name
-            $metadata = $metadataByName[$name]
-            if ((Get-Item -LiteralPath $path).Length -ne $metadata.size) { throw "Asset size mismatch: $name" }
-            if ($metadata.digest -cnotmatch '^sha256:(?<hash>[0-9a-f]{64})$') {
-              throw "Asset lacks a valid GitHub SHA-256 digest: $name"
-            }
-            $actualHash = (Get-FileHash -LiteralPath $path -Algorithm SHA256).Hash.ToLowerInvariant()
-            if ($actualHash -cne $Matches.hash) { throw "GitHub digest mismatch: $name" }
-          }
 
-          $manifestExpected = @($expectedAssets | Where-Object { $_ -ne "SHA256SUMS" }) | Sort-Object
+          $manifestExpected = @(
+            $expectedAssets | Where-Object { $_ -notin @("SHA256SUMS", "macos-signing-receipt.json") }
+          ) | Sort-Object
           $manifestEntries = @{}
           foreach ($line in [IO.File]::ReadAllLines((Join-Path $downloadDirectory "SHA256SUMS"))) {
             if ($line -cnotmatch '^(?<hash>[0-9a-f]{64})  (?<name>[A-Za-z0-9._-]+)$') {
@@ -140,7 +124,25 @@ jobs:
           }
 
           $sourceCommit = (Get-Content -Raw -LiteralPath (Join-Path $downloadDirectory "SOURCE_COMMIT")).Trim()
-          if ($sourceCommit -cnotmatch '^[0-9a-f]{40}$') { throw "SOURCE_COMMIT is not a full commit ID" }
+          if ($sourceCommit -cnotmatch '^(?:[0-9a-f]{40}|[0-9a-f]{64})$') {
+            throw "SOURCE_COMMIT is not a full Git object ID"
+          }
+
+          try {
+            & node (Join-Path $env:GITHUB_WORKSPACE ".github/scripts/verify-source-commit.mjs") `
+              --release-dir $downloadDirectory `
+              --release-tag $tag `
+              --repository "Minions-Land/Magenta"
+            if ($LASTEXITCODE -ne 0) { throw "Source tag binding verification failed" }
+          } finally {
+            Remove-Item Env:MAGENTA_SOURCE_READ_TOKEN -ErrorAction SilentlyContinue
+          }
+
+          if ($requiresV0030Contract) {
+            $receiptVerifier = Join-Path $env:GITHUB_WORKSPACE ".github/scripts/verify-macos-signing-receipt.mjs"
+            & node $receiptVerifier --release-dir $downloadDirectory
+            if ($LASTEXITCODE -ne 0) { throw "macOS signing receipt verification failed" }
+          }
 
           $assetServer = Start-Process -FilePath "python" -ArgumentList @(
             "-m", "http.server", "8766", "--bind", "127.0.0.1", "--directory", $downloadDirectory
@@ -196,11 +198,47 @@ jobs:
           Write-Host "verified_version=$version"
           Write-Host "verified_draft=$($release.draft)"
           Write-Host "source_commit=$sourceCommit"
-          Write-Host "assets=8"
+          Write-Host "assets=$($expectedAssets.Count)"
           Write-Host "api_digests=ok"
           Write-Host "manifest=ok"
+          Write-Host "macos_signing_receipt=$(if ($requiresV0030Contract) { 'ok' } else { 'not-required' })"
           Write-Host "windows_install=ok"
           Write-Host "windows_binary=ok"
           Write-Host "windows_process_tools=ok"
           Write-Host "windows_clipboard=ok"
           Write-Host "windows_uninstall=ok"
+
+  macos-signing:
+    permissions:
+      contents: write
+    name: Verify macOS signing (${{ matrix.architecture }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - architecture: arm64
+            runner: macos-15
+          - architecture: x64
+            runner: macos-15-intel
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 30
+    env:
+      RELEASE_TAG: ${{ inputs.release_tag }}
+      ALLOW_DRAFT: ${{ inputs.allow_draft }}
+    steps:
+      - name: Checkout release verifier
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
+        with:
+          persist-credentials: false
+
+      - name: Verify Developer ID signing and notarization
+        env:
+          GH_TOKEN: ${{ github.token }}
+          MAGENTA_SOURCE_READ_TOKEN: ${{ secrets.MAGENTA_SOURCE_READ_TOKEN }}
+        run: |
+          node .github/scripts/verify-macos-published-release.mjs \
+            --allow-draft "$ALLOW_DRAFT" \
+            --native-architecture "${{ matrix.architecture }}" \
+            --release-dir "$RUNNER_TEMP/magenta-macos-release" \
+            --release-tag "$RELEASE_TAG" \
+            --repository "Minions-Land/Magenta-CLI"
