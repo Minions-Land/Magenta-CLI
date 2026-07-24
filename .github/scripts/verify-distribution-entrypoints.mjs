@@ -7,6 +7,8 @@ import { fileURLToPath } from "node:url";
 const REPOSITORY_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
 const UNIX_BOOTSTRAP = "https://raw.githubusercontent.com/Minions-Land/Magenta-CLI/main/install.sh";
 const RELEASE_API_ROOT = "https://api.github.com/repos/Minions-Land/Magenta-CLI/releases/latest";
+const LEGACY_UNIX_ANCHOR = "unix-v0-0-29-manual-transition";
+const V0_0_29_MANIFEST_SHA256 = "f61d38f8d9c7838a77b9e79d3c33d322fc328cb22c713a304614797f5e986d21";
 
 export function verifyDistributionEntrypoints({ readme, rootInstaller }) {
 	if (!readme.includes(UNIX_BOOTSTRAP)) throw new Error("README is missing the verified Unix bootstrap entrypoint.");
@@ -26,6 +28,17 @@ export function verifyDistributionEntrypoints({ readme, rootInstaller }) {
 	}
 	if (/aria2|多源自动轮换|并行分片/iu.test(readme)) {
 		throw new Error("README contains capabilities from the retired repository-root installer.");
+	}
+	if (!/macOS \/ Linux \(`v0\.1\.0\+`\)/u.test(readme)) {
+		throw new Error("README must scope the release-bound Unix bootstrap to v0.1.0 and later.");
+	}
+	for (const required of [
+		`id="${LEGACY_UNIX_ANCHOR}"`,
+		'tag="v0.0.29"',
+		V0_0_29_MANIFEST_SHA256,
+		'test "$version" = "0.0.29"',
+	]) {
+		if (!readme.includes(required)) throw new Error(`README is missing the fixed v0.0.29 Unix transition: ${required}`);
 	}
 	if (typeof rootInstaller !== "string") {
 		throw new Error("Repository-root install.sh compatibility entrypoint is missing.");
@@ -64,6 +77,9 @@ export function verifyDistributionEntrypoints({ readme, rootInstaller }) {
 	}
 	if (/raw\.githubusercontent|aria2|tar\s/iu.test(rootInstaller)) {
 		throw new Error("Repository-root install.sh contains retired installation or asset-selection logic.");
+	}
+	if (!rootInstaller.includes(`#${LEGACY_UNIX_ANCHOR}`)) {
+		throw new Error("Repository-root install.sh must direct v0.0.29 users to the fixed-tag manual transition.");
 	}
 }
 

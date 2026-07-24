@@ -70,7 +70,13 @@ asset_digests() {
 
 INSTALL_ASSET_COUNT=$(asset_digests install.sh | wc -l | tr -d ' ')
 if [ "$INSTALL_ASSET_COUNT" -ne 1 ]; then
-  echo "Release ${LATEST_TAG} does not contain exactly one install.sh asset; refusing unbound fallback." >&2
+  if [ "$LATEST_TAG" = "v0.0.29" ]; then
+    echo "Release v0.0.29 predates the release-bound Unix installer." >&2
+    echo "This bootstrap will not execute an unbound fallback." >&2
+    echo "Use the fixed-tag manual Unix procedure at https://github.com/${DIST_REPO}#unix-v0-0-29-manual-transition" >&2
+  else
+    echo "Release ${LATEST_TAG} does not contain exactly one install.sh asset; refusing unbound fallback." >&2
+  fi
   exit 1
 fi
 EXPECTED_DIGEST=$(asset_digests install.sh | head -1 | tr '[:upper:]' '[:lower:]')

@@ -516,9 +516,7 @@ test("rejects forged signature metadata and refuses verification while API token
 	}
 
 	const originalToken = process.env.GH_TOKEN;
-	const originalSourceToken = process.env.MAGENTA_SOURCE_READ_TOKEN;
 	process.env.GH_TOKEN = "must-not-reach-codesign";
-	process.env.MAGENTA_SOURCE_READ_TOKEN = "must-not-reach-codesign-either";
 	try {
 		assert.throws(
 			() => verifyDownloadedMacosRelease({ releaseDir: "/tmp/unused", runCommand: () => assert.fail() }),
@@ -527,7 +525,5 @@ test("rejects forged signature metadata and refuses verification while API token
 		} finally {
 			if (originalToken === undefined) delete process.env.GH_TOKEN;
 			else process.env.GH_TOKEN = originalToken;
-			if (originalSourceToken === undefined) delete process.env.MAGENTA_SOURCE_READ_TOKEN;
-			else process.env.MAGENTA_SOURCE_READ_TOKEN = originalSourceToken;
 		}
 });

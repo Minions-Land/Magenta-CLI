@@ -101,8 +101,19 @@ test("keeps repository permissions read-only by default and requires source bind
 		/scope draft-release access/u,
 	);
 	assert.throws(
-		() => verifyReleaseWorkflowPolicy(workflow.replace("MAGENTA_SOURCE_READ_TOKEN: ${{ secrets.MAGENTA_SOURCE_READ_TOKEN }}", "MAGENTA_SOURCE_READ_TOKEN: ${{ secrets.OTHER_TOKEN }}")),
+		() => verifyReleaseWorkflowPolicy(workflow.replace("verify-source-commit.mjs", "skip-source-commit.mjs")),
 		/source tag/u,
+	);
+});
+
+test("keeps public-source verification independent of repository secrets", () => {
+	const withLegacySourceToken = workflow.replace(
+		"          GH_TOKEN: ${{ github.token }}",
+		"          GH_TOKEN: ${{ github.token }}\n          MAGENTA_SOURCE_READ_TOKEN: ${{ secrets.MAGENTA_SOURCE_READ_TOKEN }}",
+	);
+	assert.throws(
+		() => verifyReleaseWorkflowPolicy(withLegacySourceToken),
+		/anonymous public-source verification/u,
 	);
 });
 

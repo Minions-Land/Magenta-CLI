@@ -51,7 +51,7 @@ test("parses strict release tags and gates v0.0.30+", () => {
 	assert.throws(() => parseReleaseTag("v0.0.030"), /exact/u);
 });
 
-test("peels an annotated source tag and matches SOURCE_COMMIT", async () => {
+test("peels an annotated source tag anonymously and matches SOURCE_COMMIT", async () => {
 	const root = fixture();
 	const seen = [];
 	try {
@@ -72,7 +72,6 @@ test("peels an annotated source tag and matches SOURCE_COMMIT", async () => {
 			releaseDir: root,
 			releaseTag: TAG,
 			repository: SOURCE_REPOSITORY,
-			token: "read-only-test-token",
 		});
 		assert.deepEqual(result, {
 			peeledCommit: COMMIT,
@@ -82,8 +81,40 @@ test("peels an annotated source tag and matches SOURCE_COMMIT", async () => {
 		});
 		assert.equal(seen.length, 2);
 		for (const request of seen) {
-			assert.equal(request.options.headers.Authorization, "Bearer read-only-test-token");
+			assert.equal(Object.hasOwn(request.options.headers, "Authorization"), false);
 			assert.equal(request.options.redirect, "manual");
+		}
+	} finally {
+		rmSync(root, { force: true, recursive: true });
+	}
+});
+
+test("uses an optional source token only when explicitly supplied", async () => {
+	const root = fixture();
+	const seen = [];
+	try {
+		await verifySourceCommitBinding({
+			fetchImpl: routedFetch(
+				[
+					{
+						suffix: `/git/ref/tags/${TAG}`,
+						value: { ref: `refs/tags/${TAG}`, object: { sha: TAG_OBJECT, type: "tag" } },
+					},
+					{
+						suffix: `/git/tags/${TAG_OBJECT}`,
+						value: { sha: TAG_OBJECT, tag: TAG, object: { sha: COMMIT, type: "commit" } },
+					},
+				],
+				seen,
+			),
+			releaseDir: root,
+			releaseTag: TAG,
+			repository: SOURCE_REPOSITORY,
+			token: "read-only-test-token",
+		});
+		assert.equal(seen.length, 2);
+		for (const request of seen) {
+			assert.equal(request.options.headers.Authorization, "Bearer read-only-test-token");
 		}
 	} finally {
 		rmSync(root, { force: true, recursive: true });
@@ -120,13 +151,9 @@ test("supports a bounded nested annotated-tag chain", async () => {
 	}
 });
 
-test("rejects missing credentials, lightweight tags, wrong tags, and mismatches", async () => {
+test("rejects lightweight tags, wrong tags, and mismatches", async () => {
 	const root = fixture();
 	try {
-		await assert.rejects(
-			() => verifySourceCommitBinding({ releaseDir: root, releaseTag: TAG, repository: SOURCE_REPOSITORY }),
-			/MAGENTA_SOURCE_READ_TOKEN/u,
-		);
 		const common = (refObject, tagObject = undefined) =>
 			verifySourceCommitBinding({
 				fetchImpl: routedFetch([
@@ -230,7 +257,7 @@ test("fails closed on API 404, ambiguous responses, unsupported objects, and loo
 	}
 });
 
-test("legacy releases do not require the source token", async () => {
+test("legacy releases skip source-tag API verification", async () => {
 	const root = fixture();
 	try {
 		const result = await verifySourceCommitBinding({

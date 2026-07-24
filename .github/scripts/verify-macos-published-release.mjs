@@ -807,7 +807,7 @@ export function verifyDownloadedMacosRelease({
 	if (runCommand === runSystemCommand && normalizedNativeArchitecture !== normalizeMacosArchitecture(process.arch)) {
 		throw new Error("Requested native architecture does not match the macOS verifier host.");
 	}
-	if (process.env.GH_TOKEN || process.env.GITHUB_TOKEN || process.env.MAGENTA_SOURCE_READ_TOKEN) {
+	if (process.env.GH_TOKEN || process.env.GITHUB_TOKEN) {
 		throw new Error("GitHub tokens must be removed before downloaded assets are inspected.");
 	}
 	const expectedTeamId = readRepositoryMacosTeamId();
@@ -885,13 +885,11 @@ async function main(args) {
 	if (!requiresV0030Contract(options.tag)) {
 		delete process.env.GH_TOKEN;
 		delete process.env.GITHUB_TOKEN;
-		delete process.env.MAGENTA_SOURCE_READ_TOKEN;
 		process.stdout.write(`verified_tag=${options.tag}\nmacos_verification=not-required\n`);
 		return;
 	}
 
 	let token = process.env.GH_TOKEN;
-	const sourceReadToken = process.env.MAGENTA_SOURCE_READ_TOKEN;
 	try {
 		const release = await fetchReleaseMetadata({ ...options, token });
 		await downloadReleaseAssets({ ...options, release, token });
@@ -899,13 +897,11 @@ async function main(args) {
 			releaseDir: options.releaseDir,
 			releaseTag: options.tag,
 			repository: "Minions-Land/Magenta",
-			token: sourceReadToken,
 		});
 		options.draft = release.draft;
 	} finally {
 		delete process.env.GH_TOKEN;
 		delete process.env.GITHUB_TOKEN;
-		delete process.env.MAGENTA_SOURCE_READ_TOKEN;
 		token = undefined;
 	}
 

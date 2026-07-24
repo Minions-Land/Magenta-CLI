@@ -27,6 +27,9 @@ export function verifyReleaseWorkflowPolicy(workflow) {
 		/^permissions:\s*\n  contents:\s*read\s*$/mu,
 		"release verification workflow must default to read-only repository permissions.",
 	);
+	if (/MAGENTA_SOURCE_READ_TOKEN/u.test(workflow)) {
+		throw new Error("release verification must use anonymous public-source verification without a legacy source token.");
+	}
 	const windowsJob = readJobBlock(workflow, "windows-runtime");
 	requirePattern(
 		windowsJob,
@@ -51,8 +54,8 @@ export function verifyReleaseWorkflowPolicy(workflow) {
 	}
 	requirePattern(
 		windowsJob,
-		/- name: Verify receipts, installer, and native runtime[\s\S]*?MAGENTA_SOURCE_READ_TOKEN:\s*\$\{\{ secrets\.MAGENTA_SOURCE_READ_TOKEN \}\}[\s\S]*?node \(Join-Path \$env:GITHUB_WORKSPACE "\.github\/scripts\/verify-source-commit\.mjs"\)[\s\S]*?Remove-Item Env:MAGENTA_SOURCE_READ_TOKEN/u,
-		"windows-runtime must verify SOURCE_COMMIT against the source tag and scrub the dedicated read-only token before asset execution.",
+		/- name: Verify receipts, installer, and native runtime[\s\S]*?node \(Join-Path \$env:GITHUB_WORKSPACE "\.github\/scripts\/verify-source-commit\.mjs"\)[\s\S]*?--repository "Minions-Land\/Magenta"/u,
+		"windows-runtime must verify SOURCE_COMMIT against the fixed public source tag before asset execution.",
 	);
 	const macosJob = readJobBlock(workflow, "macos-signing");
 	requirePattern(
@@ -77,8 +80,8 @@ export function verifyReleaseWorkflowPolicy(workflow) {
 	);
 	requirePattern(
 		macosJob,
-		/GH_TOKEN:\s*\$\{\{ github\.token \}\}[\s\S]*?MAGENTA_SOURCE_READ_TOKEN:\s*\$\{\{ secrets\.MAGENTA_SOURCE_READ_TOKEN \}\}[\s\S]*?node \.github\/scripts\/verify-macos-published-release\.mjs/u,
-		"macos-signing must invoke the tracked native macOS release verifier with scoped release and source-read tokens.",
+		/GH_TOKEN:\s*\$\{\{ github\.token \}\}[\s\S]*?node \.github\/scripts\/verify-macos-published-release\.mjs/u,
+		"macos-signing must invoke the tracked native macOS release verifier with a scoped release token.",
 	);
 	for (const argument of ["--allow-draft", "--native-architecture", "--release-dir", "--release-tag", "--repository"]) {
 		if (!macosJob.includes(argument)) throw new Error(`macos-signing verifier invocation is missing ${argument}.`);

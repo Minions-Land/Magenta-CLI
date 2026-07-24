@@ -62,12 +62,15 @@ function readSourceCommit(releaseDir) {
 }
 
 function sourceApiHeaders(token) {
-	return {
+	const headers = {
 		Accept: "application/vnd.github+json",
-		Authorization: `Bearer ${token}`,
 		"User-Agent": "magenta-source-commit-verifier",
 		"X-GitHub-Api-Version": GITHUB_API_VERSION,
 	};
+	if (typeof token === "string" && token.length > 0) {
+		headers.Authorization = `Bearer ${token}`;
+	}
+	return headers;
 }
 
 async function fetchJson(fetchImpl, url, token) {
@@ -139,8 +142,9 @@ function assertAnnotatedTag(tagObject, expectedTag, expectedSha, { root }) {
 
 /**
  * Prove that SOURCE_COMMIT is the commit peeled from the exact annotated tag.
- * The source repository is private today, so a dedicated read-only token is an
- * explicit release gate. No downloaded release code is executed in this path.
+ * The fixed source repository is public, so verification is anonymous unless
+ * the caller explicitly supplies a token. No downloaded release code is
+ * executed in this path.
  */
 export async function verifySourceCommitBinding({
 	fetchImpl = fetch,
@@ -153,9 +157,6 @@ export async function verifySourceCommitBinding({
 	assertRepository(repository);
 	if (!requiresSourceCommitBinding(releaseTag)) {
 		return { releaseTag, sourceCommit: readSourceCommit(releaseDir), status: "not-required" };
-	}
-	if (typeof token !== "string" || token.length === 0) {
-		throw new Error("MAGENTA_SOURCE_READ_TOKEN is required for v0.0.30+ source tag verification.");
 	}
 
 	const sourceCommit = readSourceCommit(releaseDir);
@@ -214,10 +215,7 @@ function parseArguments(args) {
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
 	try {
 		const options = parseArguments(process.argv.slice(2));
-		const result = await verifySourceCommitBinding({
-			...options,
-			token: process.env.MAGENTA_SOURCE_READ_TOKEN,
-		});
+		const result = await verifySourceCommitBinding(options);
 		process.stdout.write(`source_tag=${result.releaseTag}\nsource_commit=${result.sourceCommit}\n`);
 		process.stdout.write(`source_binding=${result.status}\n`);
 	} catch (error) {

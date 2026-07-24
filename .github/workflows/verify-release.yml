@@ -54,7 +54,6 @@ jobs:
         shell: pwsh
         env:
           GH_TOKEN: ${{ github.token }}
-          MAGENTA_SOURCE_READ_TOKEN: ${{ secrets.MAGENTA_SOURCE_READ_TOKEN }}
         run: |
           $ErrorActionPreference = "Stop"
           $tag = $env:RELEASE_TAG
@@ -128,15 +127,11 @@ jobs:
             throw "SOURCE_COMMIT is not a full Git object ID"
           }
 
-          try {
-            & node (Join-Path $env:GITHUB_WORKSPACE ".github/scripts/verify-source-commit.mjs") `
-              --release-dir $downloadDirectory `
-              --release-tag $tag `
-              --repository "Minions-Land/Magenta"
-            if ($LASTEXITCODE -ne 0) { throw "Source tag binding verification failed" }
-          } finally {
-            Remove-Item Env:MAGENTA_SOURCE_READ_TOKEN -ErrorAction SilentlyContinue
-          }
+          & node (Join-Path $env:GITHUB_WORKSPACE ".github/scripts/verify-source-commit.mjs") `
+            --release-dir $downloadDirectory `
+            --release-tag $tag `
+            --repository "Minions-Land/Magenta"
+          if ($LASTEXITCODE -ne 0) { throw "Source tag binding verification failed" }
 
           if ($requiresV0030Contract) {
             $receiptVerifier = Join-Path $env:GITHUB_WORKSPACE ".github/scripts/verify-macos-signing-receipt.mjs"
@@ -234,7 +229,6 @@ jobs:
       - name: Verify Developer ID signing and notarization
         env:
           GH_TOKEN: ${{ github.token }}
-          MAGENTA_SOURCE_READ_TOKEN: ${{ secrets.MAGENTA_SOURCE_READ_TOKEN }}
         run: |
           node .github/scripts/verify-macos-published-release.mjs \
             --allow-draft "$ALLOW_DRAFT" \
