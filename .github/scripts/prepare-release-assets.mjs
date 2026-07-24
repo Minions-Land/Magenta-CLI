@@ -43,8 +43,8 @@ export async function prepareReleaseAssets(options) {
 	const token = options.token;
 	if (typeof token !== "string" || token.length === 0) throw new Error("GH_TOKEN is required.");
 	const fetchImpl = options.fetchImpl ?? fetch;
-	const release = await fetchReleaseMetadata({ ...options, fetchImpl, token });
 	const expectedAssetNames = expectedReleaseAssetsForTag(options.tag);
+	const release = await fetchReleaseMetadata({ ...options, fetchImpl, token });
 	await downloadReleaseAssets({
 		expectedAssetNames,
 		fetchImpl,

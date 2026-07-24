@@ -72,7 +72,7 @@ test("v0.0.29 fails closed with the fixed-tag manual transition", () => {
 });
 
 test("other releases without install.sh retain the generic fail-closed error", () => {
-	const result = runWithoutInstallerAsset("v0.0.30");
+	const result = runWithoutInstallerAsset("v0.1.0");
 	assert.notEqual(result.status, 0);
 	assert.match(result.stderr, /does not contain exactly one install\.sh asset; refusing unbound fallback/u);
 	assert.doesNotMatch(result.stderr, /v0\.0\.29 predates/u);

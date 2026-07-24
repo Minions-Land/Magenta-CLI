@@ -3,6 +3,7 @@
 import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import {
+	chmodSync,
 	closeSync,
 	createReadStream,
 	createWriteStream,
@@ -23,12 +24,6 @@ import { Transform } from "node:stream";
 import { pipeline } from "node:stream/promises";
 import { basename, isAbsolute, join, relative, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
-import {
-	CHECKSUMMED_ASSETS_V0_0_30,
-	MACOS_EMBEDDED_PAYLOADS,
-	readRepositoryMacosTeamId,
-	verifyMacosSigningReceipt,
-} from "./verify-macos-signing-receipt.mjs";
 import { verifySourceCommitBinding } from "./verify-source-commit.mjs";
 
 const GITHUB_API_ROOT = "https://api.github.com";
@@ -36,8 +31,6 @@ const GITHUB_API_VERSION = "2022-11-28";
 const RELEASE_TAG_PATTERN = /^v(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/u;
 const REPOSITORY_PATTERN = /^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/u;
 const SHA256_DIGEST_PATTERN = /^sha256:([0-9a-f]{64})$/u;
-const SIGNATURE_REQUIREMENT =
-	"=anchor apple generic and certificate leaf[field.1.2.840.113635.100.6.1.13] exists";
 const METADATA_WALL_TIMEOUT_MS = 60_000;
 const METADATA_INACTIVITY_TIMEOUT_MS = 30_000;
 const ASSET_WALL_TIMEOUT_MS = 15 * 60_000;
@@ -47,11 +40,20 @@ const MAX_METADATA_BYTES = 8 * 1024 * 1024;
 const SYSTEM_COMMAND_TIMEOUT_MS = 5 * 60_000;
 const HELPER_PROOF_TIMEOUT_MS = 60_000;
 const HELPER_PROOF_SCHEMA = "magenta.release-embedded-helper-proof.v1";
+const LEGACY_EIGHT_ASSET_TAGS = new Set(["v0.0.27", "v0.0.29"]);
 
-export const EXPECTED_RELEASE_ASSETS_V0_0_30 = Object.freeze(
-	[...CHECKSUMMED_ASSETS_V0_0_30, "SHA256SUMS", "macos-signing-receipt.json"].sort(),
-);
-export const EXPECTED_RELEASE_ASSETS_V0_0_29 = Object.freeze(
+export const CHECKSUMMED_ASSETS_CURRENT = Object.freeze([
+	"magenta-macos-arm64",
+	"magenta-macos-x64",
+	"magenta-linux-x64",
+	"magenta-windows-x64.exe",
+	"magenta-resources-universal.tar.gz",
+	"install.sh",
+	"install.ps1",
+	"SOURCE_COMMIT",
+]);
+export const EXPECTED_RELEASE_ASSETS_CURRENT = Object.freeze([...CHECKSUMMED_ASSETS_CURRENT, "SHA256SUMS"].sort());
+export const EXPECTED_RELEASE_ASSETS_LEGACY_EIGHT = Object.freeze(
 	[
 		"SHA256SUMS",
 		"SOURCE_COMMIT",
@@ -64,17 +66,23 @@ export const EXPECTED_RELEASE_ASSETS_V0_0_29 = Object.freeze(
 	].sort(),
 );
 
-export const MACOS_OUTER_IDENTIFIER = "land.minions.magenta";
 export const MACOS_OUTER_BINARIES = Object.freeze([
 	{ architecture: "arm64", name: "magenta-macos-arm64" },
-	{ architecture: "x86_64", name: "magenta-macos-x64" },
+	{ architecture: "x64", name: "magenta-macos-x64" },
 ]);
 export const MACOS_CLIPBOARD_PAYLOAD = Object.freeze({
 	architectures: Object.freeze(["arm64", "x86_64"]),
-	identifier: "land.minions.magenta.clipboard",
 	resourcePath:
 		"runtime/node_modules/@mariozechner/clipboard-darwin-universal/clipboard.darwin-universal.node",
 });
+export const MACOS_EMBEDDED_PAYLOADS = Object.freeze([
+	{ architecture: "arm64", kind: "process-tools" },
+	{ architecture: "arm64", kind: "fd" },
+	{ architecture: "arm64", kind: "rg" },
+	{ architecture: "x64", kind: "process-tools" },
+	{ architecture: "x64", kind: "fd" },
+	{ architecture: "x64", kind: "rg" },
+]);
 
 function arraysEqual(left, right) {
 	return left.length === right.length && left.every((value, index) => value === right[index]);
@@ -94,6 +102,46 @@ function sha256FileSync(path) {
 	return createHash("sha256").update(readFileSync(path)).digest("hex");
 }
 
+function assertRegularFile(path, label) {
+	const stat = lstatSync(path);
+	if (!stat.isFile() || stat.isSymbolicLink()) throw new Error(`${label} must be a regular file.`);
+}
+
+export async function verifyReleaseChecksumManifest({ releaseDir }) {
+	const root = resolve(releaseDir);
+	const actualNames = readdirSync(root).sort();
+	if (!arraysEqual(actualNames, EXPECTED_RELEASE_ASSETS_CURRENT)) {
+		throw new Error("Downloaded asset set does not exactly match the current release contract.");
+	}
+
+	const manifestPath = join(root, "SHA256SUMS");
+	assertRegularFile(manifestPath, "SHA256SUMS");
+	const entries = new Map();
+	for (const [index, line] of readFileSync(manifestPath, "utf8").split(/\r?\n/u).entries()) {
+		if (!line) continue;
+		const match = /^([0-9a-f]{64})  ([A-Za-z0-9][A-Za-z0-9._-]*)$/u.exec(line);
+		if (!match) throw new Error(`Invalid SHA256SUMS line ${index + 1}.`);
+		const [, hash, name] = match;
+		if (entries.has(name)) throw new Error(`Duplicate SHA256SUMS entry: ${name}`);
+		entries.set(name, hash);
+	}
+	const actualEntries = [...entries.keys()].sort();
+	const expectedEntries = [...CHECKSUMMED_ASSETS_CURRENT].sort();
+	if (!arraysEqual(actualEntries, expectedEntries)) {
+		throw new Error("SHA256SUMS does not cover the exact current release payload.");
+	}
+	for (const name of expectedEntries) {
+		const path = join(root, name);
+		assertRegularFile(path, `Release asset ${name}`);
+		if ((await sha256File(path)) !== entries.get(name)) throw new Error(`SHA256SUMS asset hash mismatch: ${name}`);
+	}
+	const sourceCommit = readFileSync(join(root, "SOURCE_COMMIT"), "utf8").trim().toLowerCase();
+	if (!/^(?:[0-9a-f]{40}|[0-9a-f]{64})$/u.test(sourceCommit)) {
+		throw new Error("SOURCE_COMMIT is not a full Git object ID.");
+	}
+	return { manifestSha256: await sha256File(manifestPath), sourceCommit };
+}
+
 export function parseReleaseTag(tag) {
 	const match = RELEASE_TAG_PATTERN.exec(tag ?? "");
 	if (!match) throw new Error(`Release tag must be exact vMAJOR.MINOR.PATCH: ${tag ?? "(missing)"}`);
@@ -105,9 +153,15 @@ export function parseReleaseTag(tag) {
 	};
 }
 
-export function requiresV0030Contract(tag) {
+export function requiresNineAssetContract(tag) {
 	const { major, minor, patch } = parseReleaseTag(tag);
 	return major > 0 || minor > 0 || patch >= 30;
+}
+
+export function releaseAssetContractForTag(tag) {
+	if (requiresNineAssetContract(tag)) return "current-nine";
+	if (LEGACY_EIGHT_ASSET_TAGS.has(tag)) return "legacy-eight";
+	throw new Error(`Unsupported historical release asset contract: ${tag}`);
 }
 
 function assertRepository(repository) {
@@ -300,10 +354,12 @@ export async function fetchReleaseMetadata({
 }
 
 export function expectedReleaseAssetsForTag(tag) {
-	return requiresV0030Contract(tag) ? EXPECTED_RELEASE_ASSETS_V0_0_30 : EXPECTED_RELEASE_ASSETS_V0_0_29;
+	return releaseAssetContractForTag(tag) === "current-nine"
+		? EXPECTED_RELEASE_ASSETS_CURRENT
+		: EXPECTED_RELEASE_ASSETS_LEGACY_EIGHT;
 }
 
-export function indexExpectedReleaseAssets(release, expectedAssetNames = EXPECTED_RELEASE_ASSETS_V0_0_30) {
+export function indexExpectedReleaseAssets(release, expectedAssetNames = EXPECTED_RELEASE_ASSETS_CURRENT) {
 	if (!Array.isArray(release?.assets)) throw new Error("Release asset metadata is missing.");
 	const expectedNames = [...expectedAssetNames].sort();
 	const assets = new Map();
@@ -440,7 +496,7 @@ async function writeResponseAtomically(
 }
 
 export async function downloadReleaseAssets({
-	expectedAssetNames = EXPECTED_RELEASE_ASSETS_V0_0_30,
+	expectedAssetNames = EXPECTED_RELEASE_ASSETS_CURRENT,
 	fetchImpl = fetch,
 	release,
 	releaseDir,
@@ -543,70 +599,24 @@ export function extractArchiveMemberToFile({ archivePath, memberPath, outputPath
 	}
 }
 
-function runChecked(runCommand, command, args, label) {
-	const result = runCommand(command, args);
+function runChecked(runCommand, command, args, label, options) {
+	const result = runCommand(command, args, options);
 	if (result?.error || result?.status !== 0) {
 		throw new Error(`${label} failed: ${String(result?.stderr ?? result?.error?.message ?? "unknown error").trim()}`);
 	}
-	return `${result.stdout ?? ""}\n${result.stderr ?? ""}`;
+	return result;
 }
 
-export function assertMacosSignature(signature, { expectedIdentifier, expectedTeamId, name }) {
-	const identifier = /^Identifier=(.+)$/mu.exec(signature)?.[1];
-	const teamId = /^TeamIdentifier=([A-Z0-9]+)$/mu.exec(signature)?.[1];
-	if (identifier !== expectedIdentifier) {
-		throw new Error(`${name} Identifier mismatch: ${identifier ?? "missing"}.`);
-	}
-	if (!/^Authority=Developer ID Application:/mu.test(signature)) {
-		throw new Error(`${name} is not signed by a Developer ID Application certificate.`);
-	}
-	if (teamId !== expectedTeamId) throw new Error(`${name} TeamIdentifier mismatch: ${teamId ?? "missing"}.`);
-	if (/^Signature=adhoc$/imu.test(signature) || /^CodeDirectory .*flags=.*\badhoc\b/imu.test(signature)) {
-		throw new Error(`${name} has an ad-hoc signature.`);
-	}
-	if (!/^Timestamp=(?!none\s*$).+$/imu.test(signature)) throw new Error(`${name} has no secure timestamp.`);
-	if (!/^CodeDirectory .*flags=.*\bruntime\b/imu.test(signature)) {
-		throw new Error(`${name} does not enable hardened runtime.`);
-	}
-}
-
-export function verifyMacosCode({
-	architectures: expectedArchitectures,
-	assessGatekeeper,
-	expectedIdentifier,
-	expectedTeamId,
-	path,
-	runCommand = runSystemCommand,
-}) {
+function verifyMacosArchitectures({ architectures: expectedArchitectures, path, runCommand = runSystemCommand }) {
 	const name = basename(path);
-	runChecked(
-		runCommand,
-		"/usr/bin/codesign",
-		[
-			"--verify",
-			"--strict",
-			"--check-notarization",
-			"--verbose=2",
-			"--test-requirement",
-			SIGNATURE_REQUIREMENT,
-			path,
-		],
-		`Developer ID and notarization verification for ${name}`,
-	);
-	if (assessGatekeeper) {
-		runChecked(
-			runCommand,
-			"/usr/sbin/spctl",
-			["--assess", "--type", "execute", "--verbose=4", path],
-			`Gatekeeper assessment for ${name}`,
-		);
-	}
-	const actualArchitectures = runChecked(
+	assertRegularFile(path, `macOS payload ${name}`);
+	const inspection = runChecked(
 		runCommand,
 		"/usr/bin/lipo",
 		["-archs", path],
 		`Architecture inspection for ${name}`,
-	)
+	);
+	const actualArchitectures = `${inspection.stdout ?? ""}\n${inspection.stderr ?? ""}`
 		.trim()
 		.split(/\s+/u)
 		.filter(Boolean);
@@ -614,38 +624,30 @@ export function verifyMacosCode({
 	if (!arraysEqual(actualArchitectures.sort(), normalizedExpectedArchitectures)) {
 		throw new Error(`${name} architecture mismatch: ${actualArchitectures.join(" ") || "missing"}.`);
 	}
-	const signature = runChecked(
-		runCommand,
-		"/usr/bin/codesign",
-		["--display", "--verbose=4", path],
-		`Code-signature inspection for ${name}`,
-	);
-	assertMacosSignature(signature, { expectedIdentifier, expectedTeamId, name });
 }
 
-export function verifyMacosBinary({ architecture, expectedTeamId, path, runCommand = runSystemCommand }) {
-	verifyMacosCode({
-		architectures: [architecture],
-		assessGatekeeper: true,
-		expectedIdentifier: MACOS_OUTER_IDENTIFIER,
-		expectedTeamId,
-		path,
-		runCommand,
-	});
+export function verifyMacosBinary({ architecture, path, runCommand = runSystemCommand }) {
+	const lipoArchitecture = normalizeMacosArchitecture(architecture) === "x64" ? "x86_64" : "arm64";
+	verifyMacosArchitectures({ architectures: [lipoArchitecture], path, runCommand });
 }
 
-export function verifyMacosClipboardPayload({ expectedSha256, expectedTeamId, path, runCommand = runSystemCommand }) {
-	if (sha256FileSync(path) !== expectedSha256) {
-		throw new Error("Extracted macOS clipboard payload does not match the signing receipt.");
-	}
-	verifyMacosCode({
+export function verifyMacosClipboardPayload({ path, runCommand = runSystemCommand, runtimeEnv = process.env }) {
+	verifyMacosArchitectures({
 		architectures: MACOS_CLIPBOARD_PAYLOAD.architectures,
-		assessGatekeeper: false,
-		expectedIdentifier: MACOS_CLIPBOARD_PAYLOAD.identifier,
-		expectedTeamId,
 		path,
 		runCommand,
 	});
+	runChecked(
+		runCommand,
+		process.execPath,
+		[
+			"-e",
+			'const binding = require(process.argv[1]); if (typeof binding.getText !== "function") process.exit(1);',
+			path,
+		],
+		"Native clipboard binding load",
+		{ env: runtimeEnv },
+	);
 }
 
 function assertExactObjectKeys(value, expectedKeys, label) {
@@ -669,10 +671,9 @@ export function normalizeMacosArchitecture(value) {
 export function verifyMacosRuntimeHelperProof({
 	architecture,
 	cacheRoot,
-	embeddedPayloadSha256,
-	expectedTeamId,
 	proof,
 	runCommand = runSystemCommand,
+	runtimeEnv = process.env,
 }) {
 	const normalizedArchitecture = normalizeMacosArchitecture(architecture);
 	let parsedProof = proof;
@@ -694,8 +695,6 @@ export function verifyMacosRuntimeHelperProof({
 	if (!Array.isArray(parsedProof.helpers) || parsedProof.helpers.length !== 3) {
 		throw new Error("Runtime helper proof must contain exactly three helpers.");
 	}
-	const embeddedPaths = MACOS_EMBEDDED_PAYLOADS.map(({ relativePath }) => relativePath);
-	assertExactObjectKeys(embeddedPayloadSha256, embeddedPaths, "Signing receipt embedded helper evidence");
 	const contracts = new Map(
 		MACOS_EMBEDDED_PAYLOADS.filter((entry) => entry.architecture === normalizedArchitecture).map((entry) => [
 			entry.kind,
@@ -727,17 +726,12 @@ export function verifyMacosRuntimeHelperProof({
 		if (!Number.isSafeInteger(helper.size) || helper.size <= 0 || helper.size !== inputStats.size) {
 			throw new Error(`Runtime helper size does not match its proof: ${helper.kind}.`);
 		}
-		if (embeddedPayloadSha256[contract.relativePath] !== actualSha256) {
-			throw new Error(`Runtime helper does not match the signing receipt: ${helper.kind}.`);
-		}
-		verifyMacosCode({
-			architectures: [normalizedArchitecture === "x64" ? "x86_64" : "arm64"],
-			assessGatekeeper: false,
-			expectedIdentifier: contract.identifier,
-			expectedTeamId,
+		verifyMacosBinary({
+			architecture: normalizedArchitecture,
 			path: canonicalPath,
 			runCommand,
 		});
+		runChecked(runCommand, canonicalPath, ["--help"], `Native startup for ${helper.kind}`, { env: runtimeEnv });
 		verified.push({ kind: helper.kind, path: canonicalPath, sha256: actualSha256 });
 	}
 	if (seen.size !== contracts.size) throw new Error("Runtime helper proof is incomplete.");
@@ -746,8 +740,7 @@ export function verifyMacosRuntimeHelperProof({
 
 export function materializeAndVerifyMacosHelpers({
 	architecture,
-	embeddedPayloadSha256,
-	expectedTeamId,
+	expectedVersion,
 	releaseDir,
 	runCommand = runSystemCommand,
 	temporaryParent = tmpdir(),
@@ -764,15 +757,33 @@ export function materializeAndVerifyMacosHelpers({
 		mkdirSync(home, { mode: 0o700 });
 		mkdirSync(temporaryDirectory, { mode: 0o700 });
 		const binaryPath = join(resolve(releaseDir), binary.name);
+		const runtimeEnvironment = {
+			HOME: home,
+			LANG: "C",
+			LC_ALL: "C",
+			PATH: "/usr/bin:/bin:/usr/sbin:/sbin",
+			TMPDIR: temporaryDirectory,
+		};
+		const proofEnvironment = { ...runtimeEnvironment, MAGENTA_RELEASE_HELPER_PROOF: "1" };
+		const versionResult = runCommand(binaryPath, ["--version"], {
+			env: runtimeEnvironment,
+			timeoutMs: HELPER_PROOF_TIMEOUT_MS,
+		});
+		if (versionResult?.error || versionResult?.status !== 0) {
+			throw new Error(
+				`Native Magenta --version failed: ${String(versionResult?.stderr ?? versionResult?.error?.message ?? "unknown error").trim()}`,
+			);
+		}
+		const reportedVersion = String(versionResult.stdout ?? "").trim();
+		if (reportedVersion !== expectedVersion) {
+			throw new Error(`Native Magenta version mismatch: expected ${expectedVersion}, got ${reportedVersion || "missing"}.`);
+		}
+		runChecked(runCommand, binaryPath, ["--help"], "Native Magenta --help", {
+			env: runtimeEnvironment,
+			timeoutMs: HELPER_PROOF_TIMEOUT_MS,
+		});
 		const result = runCommand(binaryPath, ["_release-helper-proof"], {
-			env: {
-				HOME: home,
-				LANG: "C",
-				LC_ALL: "C",
-				MAGENTA_RELEASE_HELPER_PROOF: "1",
-				PATH: "/usr/bin:/bin:/usr/sbin:/sbin",
-				TMPDIR: temporaryDirectory,
-			},
+			env: proofEnvironment,
 			timeoutMs: HELPER_PROOF_TIMEOUT_MS,
 		});
 		if (result?.error || result?.status !== 0) {
@@ -783,10 +794,9 @@ export function materializeAndVerifyMacosHelpers({
 		return verifyMacosRuntimeHelperProof({
 			architecture: normalizedArchitecture,
 			cacheRoot: join(home, ".magenta", "cache"),
-			embeddedPayloadSha256,
-			expectedTeamId,
 			proof: String(result.stdout ?? "").trim(),
 			runCommand,
+			runtimeEnv: runtimeEnvironment,
 		});
 	} finally {
 		rmSync(proofRoot, { force: true, recursive: true });
@@ -794,6 +804,7 @@ export function materializeAndVerifyMacosHelpers({
 }
 
 export function verifyDownloadedMacosRelease({
+	expectedVersion,
 	extractArchiveMember = extractArchiveMemberToFile,
 	nativeArchitecture = process.arch,
 	releaseDir,
@@ -810,18 +821,19 @@ export function verifyDownloadedMacosRelease({
 	if (process.env.GH_TOKEN || process.env.GITHUB_TOKEN) {
 		throw new Error("GitHub tokens must be removed before downloaded assets are inspected.");
 	}
-	const expectedTeamId = readRepositoryMacosTeamId();
-	const receipt = verifyMacosSigningReceipt({ expectedTeamId, releaseDir });
 	for (const binary of MACOS_OUTER_BINARIES) {
 		verifyMacosBinary({
 			architecture: binary.architecture,
-			expectedTeamId,
 			path: join(resolve(releaseDir), binary.name),
 			runCommand,
 		});
 	}
 	const extractionRoot = mkdtempSync(join(resolve(temporaryParent), "magenta-cli-macos-native-"));
 	try {
+		const home = join(extractionRoot, "home");
+		const temporaryDirectory = join(extractionRoot, "tmp");
+		mkdirSync(home, { mode: 0o700 });
+		mkdirSync(temporaryDirectory, { mode: 0o700 });
 		const clipboardPath = join(extractionRoot, "clipboard.darwin-universal.node");
 		extractArchiveMember({
 			archivePath: join(resolve(releaseDir), "magenta-resources-universal.tar.gz"),
@@ -829,23 +841,32 @@ export function verifyDownloadedMacosRelease({
 			outputPath: clipboardPath,
 		});
 		verifyMacosClipboardPayload({
-			expectedSha256: receipt.clipboardSha256,
-			expectedTeamId,
 			path: clipboardPath,
 			runCommand,
+			runtimeEnv: {
+				HOME: home,
+				LANG: "C",
+				LC_ALL: "C",
+				PATH: "/usr/bin:/bin:/usr/sbin:/sbin",
+				TMPDIR: temporaryDirectory,
+			},
 		});
 	} finally {
 		rmSync(extractionRoot, { force: true, recursive: true });
 	}
+	const nativeBinary = MACOS_OUTER_BINARIES.find(
+		(candidate) => normalizeMacosArchitecture(candidate.architecture) === normalizedNativeArchitecture,
+	);
+	if (!nativeBinary) throw new Error(`No release binary matches native architecture ${normalizedNativeArchitecture}.`);
+	chmodSync(join(resolve(releaseDir), nativeBinary.name), 0o700);
 	const helpers = materializeAndVerifyMacosHelpers({
 		architecture: normalizedNativeArchitecture,
-		embeddedPayloadSha256: receipt.embeddedPayloadSha256,
-		expectedTeamId,
+		expectedVersion,
 		releaseDir,
 		runCommand,
 		temporaryParent,
 	});
-	return { ...receipt, nativeHelpers: helpers.length, nativePayloads: MACOS_OUTER_BINARIES.length + 1 + helpers.length };
+	return { nativeHelpers: helpers.length, nativePayloads: MACOS_OUTER_BINARIES.length + 1 + helpers.length };
 }
 
 function parseArguments(args) {
@@ -882,10 +903,11 @@ function parseArguments(args) {
 
 async function main(args) {
 	const options = parseArguments(args);
-	if (!requiresV0030Contract(options.tag)) {
+	const assetContract = releaseAssetContractForTag(options.tag);
+	if (assetContract === "legacy-eight") {
 		delete process.env.GH_TOKEN;
 		delete process.env.GITHUB_TOKEN;
-		process.stdout.write(`verified_tag=${options.tag}\nmacos_verification=not-required\n`);
+		process.stdout.write(`verified_tag=${options.tag}\nasset_contract=legacy-eight\nmacos_verification=not-required\n`);
 		return;
 	}
 
@@ -905,13 +927,17 @@ async function main(args) {
 		token = undefined;
 	}
 
-	const result = verifyDownloadedMacosRelease(options);
+	const manifest = await verifyReleaseChecksumManifest({ releaseDir: options.releaseDir });
+	const result = verifyDownloadedMacosRelease({ ...options, expectedVersion: parseReleaseTag(options.tag).version });
 	process.stdout.write(`verified_tag=${options.tag}\n`);
 	process.stdout.write(`verified_draft=${String(options.draft)}\n`);
-	process.stdout.write(`assets=${EXPECTED_RELEASE_ASSETS_V0_0_30.length}\n`);
-	process.stdout.write("github_digests=ok\nmanifest=ok\nmacos_signing_receipt=corroborated\n");
+	process.stdout.write("asset_contract=current-nine\n");
+	process.stdout.write(`assets=${EXPECTED_RELEASE_ASSETS_CURRENT.length}\n`);
+	process.stdout.write(`source_commit=${manifest.sourceCommit}\n`);
+	process.stdout.write(`manifest_sha256=${manifest.manifestSha256}\n`);
+	process.stdout.write("github_digests=ok\nmanifest=ok\nmacos_apple_signing=not-required\n");
 	process.stdout.write(`macos_native_payloads=${result.nativePayloads}\nmacos_native_helpers=${result.nativeHelpers}\n`);
-	process.stdout.write("macos_developer_id_and_notarization=ok\n");
+	process.stdout.write("macos_native_startup=ok\n");
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href) {

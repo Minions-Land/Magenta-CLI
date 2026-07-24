@@ -12,6 +12,7 @@ const OBJECT_SHA_PATTERN = /^[0-9a-f]{40}(?:[0-9a-f]{24})?$/u;
 const MAX_RESPONSE_BYTES = 1024 * 1024;
 const REQUEST_TIMEOUT_MS = 30_000;
 const MAX_TAG_DEPTH = 8;
+const LEGACY_SOURCE_COMMIT_TAGS = new Set(["v0.0.27", "v0.0.29"]);
 
 export const SOURCE_REPOSITORY = "Minions-Land/Magenta";
 
@@ -38,7 +39,9 @@ export function parseReleaseTag(tag) {
 
 export function requiresSourceCommitBinding(tag) {
 	const { major, minor, patch } = parseReleaseTag(tag);
-	return major > 0 || minor > 0 || patch >= 30;
+	if (major > 0 || minor > 0 || patch >= 30) return true;
+	if (LEGACY_SOURCE_COMMIT_TAGS.has(tag)) return false;
+	throw new Error(`Unsupported historical source-binding contract: ${tag}`);
 }
 
 function assertObjectSha(value, label) {

@@ -23,7 +23,7 @@ DIST_NAME="\${DIST_REPO#*/}"
 case "\$DIST_OWNER" in ''|.|..|*[!A-Za-z0-9_.-]*) exit 1 ;; esac
 case "\$DIST_NAME" in ''|.|..|*[!A-Za-z0-9_.-]*) exit 1 ;; esac
 if [ "\$DIST_REPO" != "\$DIST_OWNER/\$DIST_NAME" ]; then exit 1; fi
-LATEST_TAG="v0.0.30"
+LATEST_TAG="v0.1.0"
 EXPECTED_DIGEST="${"a".repeat(64)}"
 INSTALLER_URL="https://github.com/Minions-Land/Magenta-CLI/releases/download/\${LATEST_TAG}/install.sh"
 INSTALLER_PATH="$TMP_DIR/install.sh"

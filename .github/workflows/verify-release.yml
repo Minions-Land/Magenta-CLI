@@ -50,7 +50,7 @@ jobs:
           node .github/scripts/verify-ci-workflow-policy.mjs
           if ($LASTEXITCODE -ne 0) { throw "Distribution CI policy failed" }
 
-      - name: Verify receipts, installer, and native runtime
+      - name: Verify assets, installer, and native runtime
         shell: pwsh
         env:
           GH_TOKEN: ${{ github.token }}
@@ -61,7 +61,11 @@ jobs:
             throw "Release tag must be exact vMAJOR.MINOR.PATCH: $tag"
           }
           $version = $tag.Substring(1)
-          $requiresV0030Contract = ([Version]$version -ge [Version]"0.0.30")
+          $isLegacyEightAssetContract = $tag -ceq "v0.0.27" -or $tag -ceq "v0.0.29"
+          $requiresNineAssetContract = ([Version]$version -ge [Version]"0.0.30")
+          if (-not $isLegacyEightAssetContract -and -not $requiresNineAssetContract) {
+            throw "Unsupported historical release asset contract: $tag"
+          }
 
           $downloadDirectory = Join-Path $env:RUNNER_TEMP "magenta-release"
           $installDirectory = Join-Path $env:RUNNER_TEMP "magenta-install"
@@ -77,8 +81,8 @@ jobs:
             "magenta-resources-universal.tar.gz"
             "magenta-windows-x64.exe"
           )
-          if ($requiresV0030Contract) {
-            $expectedAssets += @("install.sh", "macos-signing-receipt.json")
+          if ($requiresNineAssetContract) {
+            $expectedAssets += "install.sh"
           }
           $expectedAssets = @($expectedAssets | Sort-Object)
 
@@ -102,9 +106,7 @@ jobs:
             throw "Downloaded asset set does not exactly match the release contract"
           }
 
-          $manifestExpected = @(
-            $expectedAssets | Where-Object { $_ -notin @("SHA256SUMS", "macos-signing-receipt.json") }
-          ) | Sort-Object
+          $manifestExpected = @($expectedAssets | Where-Object { $_ -cne "SHA256SUMS" }) | Sort-Object
           $manifestEntries = @{}
           foreach ($line in [IO.File]::ReadAllLines((Join-Path $downloadDirectory "SHA256SUMS"))) {
             if ($line -cnotmatch '^(?<hash>[0-9a-f]{64})  (?<name>[A-Za-z0-9._-]+)$') {
@@ -132,12 +134,6 @@ jobs:
             --release-tag $tag `
             --repository "Minions-Land/Magenta"
           if ($LASTEXITCODE -ne 0) { throw "Source tag binding verification failed" }
-
-          if ($requiresV0030Contract) {
-            $receiptVerifier = Join-Path $env:GITHUB_WORKSPACE ".github/scripts/verify-macos-signing-receipt.mjs"
-            & node $receiptVerifier --release-dir $downloadDirectory
-            if ($LASTEXITCODE -ne 0) { throw "macOS signing receipt verification failed" }
-          }
 
           $assetServer = Start-Process -FilePath "python" -ArgumentList @(
             "-m", "http.server", "8766", "--bind", "127.0.0.1", "--directory", $downloadDirectory
@@ -194,19 +190,20 @@ jobs:
           Write-Host "verified_draft=$($release.draft)"
           Write-Host "source_commit=$sourceCommit"
           Write-Host "assets=$($expectedAssets.Count)"
+          Write-Host "asset_contract=$(if ($requiresNineAssetContract) { 'current-nine' } else { 'legacy-eight' })"
           Write-Host "api_digests=ok"
           Write-Host "manifest=ok"
-          Write-Host "macos_signing_receipt=$(if ($requiresV0030Contract) { 'ok' } else { 'not-required' })"
+          Write-Host "macos_apple_signing=not-required"
           Write-Host "windows_install=ok"
           Write-Host "windows_binary=ok"
           Write-Host "windows_process_tools=ok"
           Write-Host "windows_clipboard=ok"
           Write-Host "windows_uninstall=ok"
 
-  macos-signing:
+  macos-runtime:
     permissions:
       contents: write
-    name: Verify macOS signing (${{ matrix.architecture }})
+    name: Verify macOS runtime (${{ matrix.architecture }})
     strategy:
       fail-fast: false
       matrix:
@@ -226,7 +223,7 @@ jobs:
         with:
           persist-credentials: false
 
-      - name: Verify Developer ID signing and notarization
+      - name: Verify checksums, provenance, and native startup
         env:
           GH_TOKEN: ${{ github.token }}
         run: |

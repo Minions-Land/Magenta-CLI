@@ -11,7 +11,7 @@ import {
 	verifySourceCommitBinding,
 } from "./verify-source-commit.mjs";
 
-const TAG = "v0.0.30";
+const TAG = "v0.1.0";
 const COMMIT = "a".repeat(40);
 const TAG_OBJECT = "b".repeat(40);
 
@@ -43,12 +43,16 @@ function routedFetch(routes, seen = []) {
 	};
 }
 
-test("parses strict release tags and gates v0.0.30+", () => {
-	assert.deepEqual(parseReleaseTag(TAG), { major: 0, minor: 0, patch: 30 });
+test("parses strict release tags and gates the current contract from v0.0.30", () => {
+	assert.deepEqual(parseReleaseTag(TAG), { major: 0, minor: 1, patch: 0 });
+	assert.throws(() => requiresSourceCommitBinding("v0.0.24"), /Unsupported historical source-binding contract/u);
+	assert.equal(requiresSourceCommitBinding("v0.0.27"), false);
 	assert.equal(requiresSourceCommitBinding("v0.0.29"), false);
+	assert.throws(() => requiresSourceCommitBinding("v0.0.28"), /Unsupported historical source-binding contract/u);
+	assert.equal(requiresSourceCommitBinding("v0.0.30"), true);
 	assert.equal(requiresSourceCommitBinding(TAG), true);
 	assert.equal(requiresSourceCommitBinding("v1.0.0"), true);
-	assert.throws(() => parseReleaseTag("v0.0.030"), /exact/u);
+	assert.throws(() => parseReleaseTag("v0.01.0"), /exact/u);
 });
 
 test("peels an annotated source tag anonymously and matches SOURCE_COMMIT", async () => {

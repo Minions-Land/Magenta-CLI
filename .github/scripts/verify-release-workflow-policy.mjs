@@ -30,6 +30,19 @@ export function verifyReleaseWorkflowPolicy(workflow) {
 	if (/MAGENTA_SOURCE_READ_TOKEN/u.test(workflow)) {
 		throw new Error("release verification must use anonymous public-source verification without a legacy source token.");
 	}
+	if (/macos-signing-receipt|Developer ID signing|notarization/iu.test(workflow)) {
+		throw new Error("release verification must not require the retired Apple signing contract.");
+	}
+	requirePattern(
+		workflow,
+		/\$requiresNineAssetContract = \(\[Version\]\$version -ge \[Version\]"0\.0\.30"\)/u,
+		"release verification must start the current nine-asset contract at v0.0.30.",
+	);
+	requirePattern(
+		workflow,
+		/\$isLegacyEightAssetContract = \$tag -ceq "v0\.0\.27" -or \$tag -ceq "v0\.0\.29"[\s\S]*?if \(-not \$isLegacyEightAssetContract -and -not \$requiresNineAssetContract\) \{[\s\S]*?throw "Unsupported historical release asset contract: \$tag"/u,
+		"release verification must limit the legacy eight-asset contract to v0.0.27 and v0.0.29.",
+	);
 	const windowsJob = readJobBlock(workflow, "windows-runtime");
 	requirePattern(
 		windowsJob,
@@ -41,7 +54,7 @@ export function verifyReleaseWorkflowPolicy(workflow) {
 	}
 	requirePattern(
 		windowsJob,
-		/- name: Verify receipts, installer, and native runtime[\s\S]*?\n        shell: pwsh\s*\n        env:\s*\n          GH_TOKEN:\s*\$\{\{ github\.token \}\}/u,
+		/- name: Verify assets, installer, and native runtime[\s\S]*?\n        shell: pwsh\s*\n        env:\s*\n          GH_TOKEN:\s*\$\{\{ github\.token \}\}/u,
 		"windows-runtime must scope GH_TOKEN to the release-download step.",
 	);
 	requirePattern(
@@ -54,40 +67,40 @@ export function verifyReleaseWorkflowPolicy(workflow) {
 	}
 	requirePattern(
 		windowsJob,
-		/- name: Verify receipts, installer, and native runtime[\s\S]*?node \(Join-Path \$env:GITHUB_WORKSPACE "\.github\/scripts\/verify-source-commit\.mjs"\)[\s\S]*?--repository "Minions-Land\/Magenta"/u,
+		/- name: Verify assets, installer, and native runtime[\s\S]*?node \(Join-Path \$env:GITHUB_WORKSPACE "\.github\/scripts\/verify-source-commit\.mjs"\)[\s\S]*?--repository "Minions-Land\/Magenta"/u,
 		"windows-runtime must verify SOURCE_COMMIT against the fixed public source tag before asset execution.",
 	);
-	const macosJob = readJobBlock(workflow, "macos-signing");
+	const macosJob = readJobBlock(workflow, "macos-runtime");
 	requirePattern(
 		macosJob,
 		/^    permissions:\s*\n      contents:\s*write\s*$/mu,
-		"macos-signing must scope draft-release access to the job that needs it.",
+		"macos-runtime must scope draft-release access to the job that needs it.",
 	);
 	requirePattern(
 		macosJob,
 		/matrix:\s*[\s\S]*?- architecture: arm64\s*\n\s+runner: macos-15\s*[\s\S]*?- architecture: x64\s*\n\s+runner: macos-15-intel/u,
-		"macos-signing must verify helpers on native Apple Silicon and Intel runners.",
+		"macos-runtime must verify helpers on native Apple Silicon and Intel runners.",
 	);
 	requirePattern(
 		macosJob,
 		/^    runs-on: \$\{\{ matrix\.runner \}\}\s*$/mu,
-		"macos-signing must use its reviewed native macOS runner matrix.",
+		"macos-runtime must use its reviewed native macOS runner matrix.",
 	);
 	requirePattern(
 		macosJob,
 		/^        uses: actions\/checkout@[0-9a-f]{40}[^\n]*\n        with:\n          persist-credentials: false\s*$/mu,
-		"macos-signing checkout must be commit-pinned with persisted credentials disabled.",
+		"macos-runtime checkout must be commit-pinned with persisted credentials disabled.",
 	);
 	requirePattern(
 		macosJob,
 		/GH_TOKEN:\s*\$\{\{ github\.token \}\}[\s\S]*?node \.github\/scripts\/verify-macos-published-release\.mjs/u,
-		"macos-signing must invoke the tracked native macOS release verifier with a scoped release token.",
+		"macos-runtime must invoke the tracked native macOS release verifier with a scoped release token.",
 	);
 	for (const argument of ["--allow-draft", "--native-architecture", "--release-dir", "--release-tag", "--repository"]) {
-		if (!macosJob.includes(argument)) throw new Error(`macos-signing verifier invocation is missing ${argument}.`);
+		if (!macosJob.includes(argument)) throw new Error(`macos-runtime verifier invocation is missing ${argument}.`);
 	}
 	if (/continue-on-error:\s*true|^\s+(?:if):\s*(?:false|\$\{\{\s*false\s*\}\})\s*$/imu.test(macosJob)) {
-		throw new Error("macos-signing must fail closed.");
+		throw new Error("macos-runtime must fail closed.");
 	}
 	return true;
 }
@@ -95,5 +108,5 @@ export function verifyReleaseWorkflowPolicy(workflow) {
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
 	if (process.argv.length !== 2) throw new Error("verify-release-workflow-policy.mjs does not accept arguments");
 	verifyReleaseWorkflowPolicy(readFileSync(WORKFLOW_PATH, "utf8"));
-	process.stdout.write("Release workflow retains the native macOS verification gate.\n");
+	process.stdout.write("Release workflow retains the native macOS runtime gate.\n");
 }

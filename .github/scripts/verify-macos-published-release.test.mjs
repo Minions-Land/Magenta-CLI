@@ -1,42 +1,48 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { fileURLToPath } from "node:url";
 import test from "node:test";
 import {
-	assertMacosSignature,
+	CHECKSUMMED_ASSETS_CURRENT,
 	downloadReleaseAssets,
-	EXPECTED_RELEASE_ASSETS_V0_0_30,
+	EXPECTED_RELEASE_ASSETS_CURRENT,
+	EXPECTED_RELEASE_ASSETS_LEGACY_EIGHT,
+	expectedReleaseAssetsForTag,
 	extractArchiveMemberToFile,
 	fetchReleaseMetadata,
 	indexExpectedReleaseAssets,
 	MACOS_CLIPBOARD_PAYLOAD,
-	MACOS_OUTER_IDENTIFIER,
+	MACOS_EMBEDDED_PAYLOADS,
 	materializeAndVerifyMacosHelpers,
 	normalizeMacosArchitecture,
 	parseReleaseTag,
-	requiresV0030Contract,
+	requiresNineAssetContract,
 	verifyDownloadedMacosRelease,
 	verifyMacosBinary,
 	verifyMacosClipboardPayload,
+	verifyReleaseChecksumManifest,
 } from "./verify-macos-published-release.mjs";
-import { MACOS_EMBEDDED_PAYLOADS } from "./verify-macos-signing-receipt.mjs";
 
 const REPOSITORY = "Minions-Land/Magenta-CLI";
-const TAG = "v0.0.30";
-const TEAM_ID = "ABCDE12345";
+const TAG = "v0.1.0";
 
 function sha256(content) {
 	return createHash("sha256").update(content).digest("hex");
 }
 
+function fileMode(path) {
+	return statSync(path).mode & 0o777;
+}
+
 function releaseFixture() {
 	const bodies = new Map(
-		EXPECTED_RELEASE_ASSETS_V0_0_30.map((name) => [name, Buffer.from(`release asset: ${name}\n`)]),
+		EXPECTED_RELEASE_ASSETS_CURRENT.map((name) => [name, Buffer.from(`release asset: ${name}\n`)]),
 	);
-	const assets = EXPECTED_RELEASE_ASSETS_V0_0_30.map((name, index) => ({
+	const assets = EXPECTED_RELEASE_ASSETS_CURRENT.map((name, index) => ({
 		digest: `sha256:${sha256(bodies.get(name))}`,
 		id: index + 100,
 		name,
@@ -46,63 +52,95 @@ function releaseFixture() {
 	return { bodies, release: { assets, draft: true, prerelease: false, tag_name: TAG } };
 }
 
-function signatureFixture(overrides = {}) {
-	return [
-		"CodeDirectory v=20500 size=100 flags=0x10000(runtime) hashes=1+0 location=embedded",
-		`Identifier=${overrides.identifier ?? "land.minions.magenta"}`,
-		"Format=Mach-O thin (arm64)",
-		"Signature size=9000",
-		`Authority=${overrides.authority ?? `Developer ID Application: Magenta (${TEAM_ID})`}`,
-		`Timestamp=${overrides.timestamp ?? "Jul 23, 2026 at 01:23:45"}`,
-		`TeamIdentifier=${overrides.teamId ?? TEAM_ID}`,
-		...(overrides.extra ?? []),
-	].join("\n");
-}
-
-test("enforces the v0.0.30+ version and exact ten-asset contract", () => {
-	assert.deepEqual(parseReleaseTag(TAG), { major: 0, minor: 0, patch: 30, version: "0.0.30" });
-	assert.equal(requiresV0030Contract("v0.0.29"), false);
-	assert.equal(requiresV0030Contract(TAG), true);
-	assert.equal(requiresV0030Contract("v1.0.0"), true);
-	assert.equal(MACOS_OUTER_IDENTIFIER, "land.minions.magenta");
-	assert.equal(MACOS_CLIPBOARD_PAYLOAD.identifier, "land.minions.magenta.clipboard");
+test("enforces the current nine-asset contract from v0.0.30", () => {
+	assert.deepEqual(parseReleaseTag(TAG), { major: 0, minor: 1, patch: 0, version: "0.1.0" });
+	assert.equal(requiresNineAssetContract("v0.0.24"), false);
+	assert.equal(requiresNineAssetContract("v0.0.29"), false);
+	assert.throws(() => expectedReleaseAssetsForTag("v0.0.24"), /Unsupported historical release asset contract/u);
+	assert.deepEqual(expectedReleaseAssetsForTag("v0.0.27"), EXPECTED_RELEASE_ASSETS_LEGACY_EIGHT);
+	assert.deepEqual(expectedReleaseAssetsForTag("v0.0.29"), EXPECTED_RELEASE_ASSETS_LEGACY_EIGHT);
+	assert.equal(requiresNineAssetContract("v0.0.30"), true);
+	assert.deepEqual(expectedReleaseAssetsForTag("v0.0.30"), EXPECTED_RELEASE_ASSETS_CURRENT);
+	assert.equal(requiresNineAssetContract(TAG), true);
+	assert.equal(requiresNineAssetContract("v1.0.0"), true);
 	assert.equal(normalizeMacosArchitecture("x86_64"), "x64");
 	assert.equal(MACOS_EMBEDDED_PAYLOADS.length, 6);
-	assert.throws(() => parseReleaseTag("v0.00.30"), /exact vMAJOR\.MINOR\.PATCH/u);
-	assert.equal(EXPECTED_RELEASE_ASSETS_V0_0_30.length, 10);
+	assert.throws(() => parseReleaseTag("v0.01.0"), /exact vMAJOR\.MINOR\.PATCH/u);
+	assert.equal(EXPECTED_RELEASE_ASSETS_CURRENT.length, 9);
 
 	const fixture = releaseFixture();
-	assert.equal(indexExpectedReleaseAssets(fixture.release).size, 10);
+	assert.equal(indexExpectedReleaseAssets(fixture.release).size, 9);
 	fixture.release.assets.pop();
 	assert.throws(() => indexExpectedReleaseAssets(fixture.release), /does not exactly match/u);
 });
 
-test("materializes native embedded helpers in a secret-free home and binds bytes and signatures to the receipt", () => {
+test("macOS verifier fails closed for an unknown historical asset contract", () => {
+	const env = { ...process.env };
+	delete env.GH_TOKEN;
+	delete env.GITHUB_TOKEN;
+	const result = spawnSync(
+		process.execPath,
+		[
+			fileURLToPath(new URL("./verify-macos-published-release.mjs", import.meta.url)),
+			"--allow-draft",
+			"false",
+			"--native-architecture",
+			"arm64",
+			"--release-dir",
+			"/unused",
+			"--release-tag",
+			"v0.0.24",
+			"--repository",
+			REPOSITORY,
+		],
+		{ encoding: "utf8", env },
+	);
+	assert.notEqual(result.status, 0);
+	assert.match(result.stderr, /Unsupported historical release asset contract: v0\.0\.24/u);
+});
+
+test("verifies the exact checksum manifest and full source commit", async () => {
+	const releaseDir = mkdtempSync(join(tmpdir(), "magenta-cli-manifest-"));
+	try {
+		const lines = [];
+		for (const name of CHECKSUMMED_ASSETS_CURRENT) {
+			const body = name === "SOURCE_COMMIT" ? `${"a".repeat(40)}\n` : `release asset: ${name}\n`;
+			writeFileSync(join(releaseDir, name), body);
+			lines.push(`${sha256(body)}  ${name}`);
+		}
+		writeFileSync(join(releaseDir, "SHA256SUMS"), `${lines.join("\n")}\n`);
+		const result = await verifyReleaseChecksumManifest({ releaseDir });
+		assert.equal(result.sourceCommit, "a".repeat(40));
+		assert.match(result.manifestSha256, /^[0-9a-f]{64}$/u);
+
+		writeFileSync(join(releaseDir, "install.sh"), "tampered\n");
+		await assert.rejects(() => verifyReleaseChecksumManifest({ releaseDir }), /asset hash mismatch: install\.sh/u);
+	} finally {
+		rmSync(releaseDir, { force: true, recursive: true });
+	}
+});
+
+test("starts the native CLI and materialized helpers in a secret-free home", () => {
 	const root = mkdtempSync(join(tmpdir(), "magenta-cli-helper-proof-test-"));
 	const releaseDir = join(root, "release");
 	mkdirSync(releaseDir);
 	const binaryPath = join(releaseDir, "magenta-macos-arm64");
-	writeFileSync(binaryPath, "signed outer binary");
+	writeFileSync(binaryPath, "outer binary");
 	const contracts = MACOS_EMBEDDED_PAYLOADS.filter(({ architecture }) => architecture === "arm64");
-	const bytesByKind = new Map(contracts.map(({ kind }) => [kind, Buffer.from(`signed helper:${kind}\n`)]));
-	const embeddedPayloadSha256 = Object.fromEntries(
-		MACOS_EMBEDDED_PAYLOADS.map(({ relativePath }) => [relativePath, sha256(`unused:${relativePath}`)]),
-	);
-	for (const contract of contracts) embeddedPayloadSha256[contract.relativePath] = sha256(bytesByKind.get(contract.kind));
+	const bytesByKind = new Map(contracts.map(({ kind }) => [kind, Buffer.from(`helper:${kind}\n`)]));
+	const binaryRuns = [];
 	const helperRuns = [];
+	let reportedVersion = "0.1.0";
 	const runCommand = (command, args, options = {}) => {
 		if (command === binaryPath) {
-			helperRuns.push({ args, env: options.env });
+			binaryRuns.push({ args, env: options.env });
+			const expectedEnvironmentKeys = ["HOME", "LANG", "LC_ALL", "PATH", "TMPDIR"];
+			if (args[0] === "_release-helper-proof") expectedEnvironmentKeys.push("MAGENTA_RELEASE_HELPER_PROOF");
+			assert.deepEqual(Object.keys(options.env).sort(), expectedEnvironmentKeys.sort());
+			assert.equal(options.env.MAGENTA_RELEASE_HELPER_PROOF, args[0] === "_release-helper-proof" ? "1" : undefined);
+			if (args[0] === "--version") return { status: 0, stderr: "", stdout: `${reportedVersion}\n` };
+			if (args[0] === "--help") return { status: 0, stderr: "", stdout: "help\n" };
 			assert.deepEqual(args, ["_release-helper-proof"]);
-			assert.deepEqual(Object.keys(options.env).sort(), [
-				"HOME",
-				"LANG",
-				"LC_ALL",
-				"MAGENTA_RELEASE_HELPER_PROOF",
-				"PATH",
-				"TMPDIR",
-			]);
-			assert.equal(options.env.MAGENTA_RELEASE_HELPER_PROOF, "1");
 			const cacheRoot = join(options.env.HOME, ".magenta", "cache", "proof-generation");
 			mkdirSync(cacheRoot, { recursive: true });
 			const helpers = contracts.map(({ kind }) => {
@@ -118,39 +156,143 @@ test("materializes native embedded helpers in a secret-free home and binds bytes
 			};
 		}
 		if (command.endsWith("/lipo")) return { status: 0, stderr: "", stdout: "arm64\n" };
-		if (command.endsWith("/codesign") && args[0] === "--display") {
-			const kind = args.at(-1).split("/").at(-1);
-			const contract = contracts.find((candidate) => candidate.kind === kind);
-			return { status: 0, stderr: signatureFixture({ identifier: contract.identifier }), stdout: "" };
+		if (contracts.some(({ kind }) => command.endsWith(`/${kind}`))) {
+			helperRuns.push({ args, command, env: options.env });
+			return { status: 0, stderr: "", stdout: "help\n" };
 		}
 		return { status: 0, stderr: "", stdout: "" };
 	};
 	try {
 		const verified = materializeAndVerifyMacosHelpers({
 			architecture: "arm64",
-			embeddedPayloadSha256,
-			expectedTeamId: TEAM_ID,
+			expectedVersion: "0.1.0",
 			releaseDir,
 			runCommand,
 			temporaryParent: root,
 		});
 		assert.deepEqual(verified.map(({ kind }) => kind), ["fd", "process-tools", "rg"]);
-		assert.equal(helperRuns.length, 1);
-		assert.equal("GH_TOKEN" in helperRuns[0].env, false);
+		assert.deepEqual(binaryRuns.map(({ args }) => args), [["--version"], ["--help"], ["_release-helper-proof"]]);
+		assert.equal(binaryRuns.every(({ env }) => !("GH_TOKEN" in env)), true);
+		assert.equal(helperRuns.length, 3);
+		assert.equal(helperRuns.every(({ args }) => args[0] === "--help"), true);
 
-		const tampered = { ...embeddedPayloadSha256, [contracts[0].relativePath]: "0".repeat(64) };
+		reportedVersion = "0.1.1";
 		assert.throws(
 			() =>
 				materializeAndVerifyMacosHelpers({
 					architecture: "arm64",
-					embeddedPayloadSha256: tampered,
-					expectedTeamId: TEAM_ID,
+					expectedVersion: "0.1.0",
 					releaseDir,
 					runCommand,
 					temporaryParent: root,
 				}),
-			/does not match the signing receipt/u,
+			/version mismatch/u,
 		);
+	} finally {
+		rmSync(root, { force: true, recursive: true });
+	}
+});
+
+test("keeps verified downloads private and enables only the native x64 outer binary before startup", async () => {
+	const root = mkdtempSync(join(tmpdir(), "magenta-cli-native-mode-"));
+	const releaseDir = join(root, "release");
+	mkdirSync(releaseDir, { mode: 0o700 });
+	const armBinary = join(releaseDir, "magenta-macos-arm64");
+	const x64Binary = join(releaseDir, "magenta-macos-x64");
+	const events = [];
+	try {
+		const manifestLines = [];
+		for (const name of CHECKSUMMED_ASSETS_CURRENT) {
+			const body = name === "SOURCE_COMMIT" ? `${"b".repeat(40)}\n` : `verified payload: ${name}\n`;
+			writeFileSync(join(releaseDir, name), body, { mode: 0o600 });
+			manifestLines.push(`${sha256(body)}  ${name}`);
+		}
+		writeFileSync(join(releaseDir, "SHA256SUMS"), `${manifestLines.join("\n")}\n`, { mode: 0o600 });
+
+		await verifyReleaseChecksumManifest({ releaseDir });
+		events.push("manifest");
+		for (const name of EXPECTED_RELEASE_ASSETS_CURRENT) assert.equal(fileMode(join(releaseDir, name)), 0o600);
+
+		const x64Contracts = MACOS_EMBEDDED_PAYLOADS.filter(({ architecture }) => architecture === "x64");
+		const runCommand = (command, args, options = {}) => {
+			if (command === "/usr/bin/lipo") {
+				const target = args[1];
+				if (target === armBinary) {
+					assert.equal(fileMode(armBinary), 0o600);
+					events.push("lipo:arm64");
+					return { status: 0, stderr: "", stdout: "arm64\n" };
+				}
+				if (target === x64Binary) {
+					assert.equal(fileMode(x64Binary), 0o600);
+					events.push("lipo:x64");
+					return { status: 0, stderr: "", stdout: "x86_64\n" };
+				}
+				if (target.endsWith("/clipboard.darwin-universal.node")) {
+					events.push("lipo:clipboard");
+					return { status: 0, stderr: "", stdout: "x86_64 arm64\n" };
+				}
+				if (x64Contracts.some(({ kind }) => target.endsWith(`/${kind}`))) {
+					return { status: 0, stderr: "", stdout: "x86_64\n" };
+				}
+				return { status: 1, stderr: `unexpected lipo target: ${target}`, stdout: "" };
+			}
+			if (command === process.execPath) {
+				assert.equal(fileMode(armBinary), 0o600);
+				assert.equal(fileMode(x64Binary), 0o600);
+				events.push("load:clipboard");
+				return { status: 0, stderr: "", stdout: "" };
+			}
+			if (command === x64Binary) {
+				assert.equal(fileMode(armBinary), 0o600);
+				assert.equal(fileMode(x64Binary), 0o700);
+				events.push(`outer:${args[0]}`);
+				if (args[0] === "--version") return { status: 0, stderr: "", stdout: "0.1.0\n" };
+				if (args[0] === "--help") return { status: 0, stderr: "", stdout: "help\n" };
+				const cacheRoot = join(options.env.HOME, ".magenta", "cache", "proof-generation");
+				mkdirSync(cacheRoot, { recursive: true });
+				const helpers = x64Contracts.map(({ kind }) => {
+					const path = join(cacheRoot, kind);
+					const body = `helper:${kind}\n`;
+					writeFileSync(path, body, { mode: 0o700 });
+					return { kind, path, sha256: sha256(body), size: Buffer.byteLength(body) };
+				});
+				return {
+					status: 0,
+					stderr: "",
+					stdout: `${JSON.stringify({ architecture: "x64", helpers, platform: "darwin", schema: "magenta.release-embedded-helper-proof.v1" })}\n`,
+				};
+			}
+			if (x64Contracts.some(({ kind }) => command.endsWith(`/${kind}`))) {
+				return { status: 0, stderr: "", stdout: "help\n" };
+			}
+			return { status: 1, stderr: `unexpected command: ${command}`, stdout: "" };
+		};
+
+		const result = verifyDownloadedMacosRelease({
+			expectedVersion: "0.1.0",
+			extractArchiveMember({ outputPath }) {
+				writeFileSync(outputPath, "clipboard payload\n", { mode: 0o600 });
+			},
+			nativeArchitecture: "x64",
+			releaseDir,
+			runCommand,
+			temporaryParent: root,
+		});
+		assert.deepEqual(result, { nativeHelpers: 3, nativePayloads: 6 });
+		assert.deepEqual(events.slice(0, 8), [
+			"manifest",
+			"lipo:arm64",
+			"lipo:x64",
+			"lipo:clipboard",
+			"load:clipboard",
+			"outer:--version",
+			"outer:--help",
+			"outer:_release-helper-proof",
+		]);
+		assert.equal(fileMode(x64Binary), 0o700);
+		for (const name of EXPECTED_RELEASE_ASSETS_CURRENT) {
+			if (name !== "magenta-macos-x64") assert.equal(fileMode(join(releaseDir, name)), 0o600);
+		}
 	} finally {
 		rmSync(root, { force: true, recursive: true });
 	}
@@ -276,11 +418,11 @@ test("downloads every asset by API ID, strips auth on redirects, and checks GitH
 			repository: REPOSITORY,
 			token: "test-token",
 		});
-		for (const name of EXPECTED_RELEASE_ASSETS_V0_0_30) {
+		for (const name of EXPECTED_RELEASE_ASSETS_CURRENT) {
 			assert.deepEqual(readFileSync(join(releaseDir, name)), fixture.bodies.get(name));
 		}
-		assert.equal(calls.filter((call) => call.authorization === "Bearer test-token").length, 10);
-		assert.equal(calls.filter((call) => call.url.includes("release-assets.githubusercontent.com")).length, 10);
+		assert.equal(calls.filter((call) => call.authorization === "Bearer test-token").length, 9);
+		assert.equal(calls.filter((call) => call.url.includes("release-assets.githubusercontent.com")).length, 9);
 		assert.equal(
 			calls.filter((call) => call.url.includes("release-assets.githubusercontent.com")).every((call) => !call.authorization),
 			true,
@@ -387,75 +529,67 @@ test("aborts a stalled asset body with the idle timeout", async () => {
 	}
 });
 
-test("requires strict notarized Developer ID checks without executing either binary", () => {
+test("checks the declared native architecture without requiring Apple signing", () => {
+	const root = mkdtempSync(join(tmpdir(), "magenta-cli-binary-"));
+	const binaryPath = join(root, "magenta-macos-arm64");
+	writeFileSync(binaryPath, "unsigned binary");
 	const calls = [];
-	const runCommand = (command, args) => {
-		calls.push({ args, command });
-		if (command.endsWith("/lipo")) return { status: 0, stderr: "", stdout: "arm64\n" };
-		if (args[0] === "--display") return { status: 0, stderr: signatureFixture(), stdout: "" };
-		return { status: 0, stderr: "", stdout: "" };
-	};
-	verifyMacosBinary({ architecture: "arm64", expectedTeamId: TEAM_ID, path: "/tmp/magenta", runCommand });
-
-	assert.deepEqual(calls.map((call) => call.command), [
-		"/usr/bin/codesign",
-		"/usr/sbin/spctl",
-		"/usr/bin/lipo",
-		"/usr/bin/codesign",
-	]);
-	assert.deepEqual(calls[0].args.slice(0, 5), [
-		"--verify",
-		"--strict",
-		"--check-notarization",
-		"--verbose=2",
-		"--test-requirement",
-	]);
-	assert.match(calls[0].args[5], /certificate leaf\[field\.1\.2\.840\.113635\.100\.6\.1\.13\] exists/u);
-	assert.deepEqual(calls[1].args.slice(0, 4), ["--assess", "--type", "execute", "--verbose=4"]);
-	assert.equal(calls.some((call) => call.args.includes("--help") || call.args.includes("--version")), false);
+	try {
+		verifyMacosBinary({
+			architecture: "arm64",
+			path: binaryPath,
+			runCommand(command, args) {
+				calls.push({ args, command });
+				return { status: 0, stderr: "", stdout: "arm64\n" };
+			},
+		});
+		assert.deepEqual(calls, [{ args: ["-archs", binaryPath], command: "/usr/bin/lipo" }]);
+		assert.equal(calls.some(({ command }) => /codesign|spctl/u.test(command)), false);
+	} finally {
+		rmSync(root, { force: true, recursive: true });
+	}
 });
 
-test("independently verifies the signed universal macOS clipboard payload without executing it", () => {
+test("maps the logical x64 outer contract to lipo x86_64", () => {
+	const root = mkdtempSync(join(tmpdir(), "magenta-cli-x64-binary-"));
+	const binaryPath = join(root, "magenta-macos-x64");
+	writeFileSync(binaryPath, "x64 binary");
+	const calls = [];
+	try {
+		verifyMacosBinary({
+			architecture: "x64",
+			path: binaryPath,
+			runCommand(command, args) {
+				calls.push({ args, command });
+				return { status: 0, stderr: "", stdout: "x86_64\n" };
+			},
+		});
+		assert.deepEqual(calls, [{ args: ["-archs", binaryPath], command: "/usr/bin/lipo" }]);
+	} finally {
+		rmSync(root, { force: true, recursive: true });
+	}
+});
+
+test("checks and loads the universal macOS clipboard payload", () => {
 	const root = mkdtempSync(join(tmpdir(), "magenta-cli-clipboard-"));
 	const clipboardPath = join(root, "clipboard.darwin-universal.node");
-	const bytes = Buffer.from("signed universal clipboard payload\n");
+	const bytes = Buffer.from("universal clipboard payload\n");
 	writeFileSync(clipboardPath, bytes);
 	const calls = [];
 	const runCommand = (command, args) => {
 		calls.push({ args, command });
 		if (command.endsWith("/lipo")) return { status: 0, stderr: "", stdout: "x86_64 arm64\n" };
-		if (args[0] === "--display") {
-			return {
-				status: 0,
-				stderr: signatureFixture({ identifier: MACOS_CLIPBOARD_PAYLOAD.identifier }),
-				stdout: "",
-			};
-		}
 		return { status: 0, stderr: "", stdout: "" };
 	};
 	try {
 		verifyMacosClipboardPayload({
-			expectedSha256: sha256(bytes),
-			expectedTeamId: TEAM_ID,
 			path: clipboardPath,
 			runCommand,
 		});
-		assert.deepEqual(calls.map((call) => call.command), [
-			"/usr/bin/codesign",
-			"/usr/bin/lipo",
-			"/usr/bin/codesign",
-		]);
-		assert.equal(calls.some((call) => call.command.endsWith("/spctl")), false);
-		assert.throws(
-			() =>
-				verifyMacosClipboardPayload({
-					expectedSha256: "0".repeat(64),
-					expectedTeamId: TEAM_ID,
-					path: clipboardPath,
-					runCommand,
-				}),
-			/does not match the signing receipt/u,
-		);
+		assert.deepEqual(calls.map((call) => call.command), ["/usr/bin/lipo", process.execPath]);
+		assert.deepEqual(calls[1].args.slice(0, 2), ["-e", calls[1].args[1]]);
+		assert.equal(calls[1].args.at(-1), clipboardPath);
+		assert.equal(calls.some(({ command }) => /codesign|spctl/u.test(command)), false);
 	} finally {
 		rmSync(root, { force: true, recursive: true });
 	}
@@ -488,42 +622,16 @@ test("extracts only the exact clipboard archive member into a regular file", () 
 	}
 });
 
-test("rejects forged signature metadata and refuses verification while API tokens remain", async (context) => {
-	const cases = [
-		["identifier", signatureFixture({ identifier: "land.minions.wrong" }), /Identifier mismatch/u],
-		["team", signatureFixture({ teamId: "ZZZZZ99999" }), /TeamIdentifier mismatch/u],
-		["authority", signatureFixture({ authority: "Apple Development: Magenta" }), /Developer ID Application/u],
-		["timestamp", signatureFixture({ timestamp: "none" }), /secure timestamp/u],
-		["ad hoc", `${signatureFixture()}\nSignature=adhoc`, /ad-hoc signature/u],
-		[
-			"runtime",
-			signatureFixture().replace("flags=0x10000(runtime)", "flags=0x0(none)"),
-			/hardened runtime/u,
-		],
-	];
-	for (const [label, signature, expected] of cases) {
-		await context.test(label, () => {
-			assert.throws(
-				() =>
-					assertMacosSignature(signature, {
-						expectedIdentifier: "land.minions.magenta",
-						expectedTeamId: TEAM_ID,
-						name: "magenta-macos-arm64",
-					}),
-				expected,
-			);
-		});
-	}
-
+test("refuses native verification while API tokens remain", () => {
 	const originalToken = process.env.GH_TOKEN;
-	process.env.GH_TOKEN = "must-not-reach-codesign";
+	process.env.GH_TOKEN = "must-not-reach-native-code";
 	try {
 		assert.throws(
 			() => verifyDownloadedMacosRelease({ releaseDir: "/tmp/unused", runCommand: () => assert.fail() }),
 			/tokens must be removed/u,
-			);
-		} finally {
-			if (originalToken === undefined) delete process.env.GH_TOKEN;
-			else process.env.GH_TOKEN = originalToken;
-		}
+		);
+	} finally {
+		if (originalToken === undefined) delete process.env.GH_TOKEN;
+		else process.env.GH_TOKEN = originalToken;
+	}
 });

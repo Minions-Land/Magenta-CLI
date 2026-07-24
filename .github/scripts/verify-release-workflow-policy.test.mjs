@@ -8,13 +8,13 @@ import { verifyReleaseWorkflowPolicy } from "./verify-release-workflow-policy.mj
 const workflowPath = resolve(dirname(fileURLToPath(import.meta.url)), "../workflows/verify-release.yml");
 const workflow = readFileSync(workflowPath, "utf8");
 
-test("current release workflow retains the native macOS verification gate", () => {
+test("current release workflow retains the native macOS runtime gate", () => {
 	assert.equal(verifyReleaseWorkflowPolicy(workflow), true);
 });
 
-test("rejects removal or soft failure of the macOS signing job", () => {
-	const withoutJob = workflow.replace(/\n  macos-signing:[\s\S]*$/u, "\n");
-	assert.throws(() => verifyReleaseWorkflowPolicy(withoutJob), /missing the macos-signing job/u);
+test("rejects removal or soft failure of the macOS runtime job", () => {
+	const withoutJob = workflow.replace(/\n  macos-runtime:[\s\S]*$/u, "\n");
+	assert.throws(() => verifyReleaseWorkflowPolicy(withoutJob), /missing the macos-runtime job/u);
 
 	const softFailure = workflow.replace(
 		"    runs-on: ${{ matrix.runner }}",
@@ -117,13 +117,38 @@ test("keeps public-source verification independent of repository secrets", () =>
 	);
 });
 
+test("keeps the current nine-asset contract free of retired Apple signing gates", () => {
+	assert.throws(
+		() =>
+			verifyReleaseWorkflowPolicy(
+				workflow.replace('$expectedAssets += "install.sh"', '$expectedAssets += @("install.sh", "macos-signing-receipt.json")'),
+			),
+		/retired Apple signing contract/u,
+	);
+	assert.throws(
+		() => verifyReleaseWorkflowPolicy(workflow.replace('[Version]"0.0.30"', '[Version]"0.1.0"')),
+		/start the current nine-asset contract at v0\.0\.30/u,
+	);
+	assert.throws(
+		() => verifyReleaseWorkflowPolicy(workflow.replace('$tag -ceq "v0.0.27" -or ', "")),
+		/limit the legacy eight-asset contract to v0\.0\.27 and v0\.0\.29/u,
+	);
+	assert.throws(
+		() =>
+			verifyReleaseWorkflowPolicy(
+				workflow.replace("Unsupported historical release asset contract: $tag", "Unexpected fallback: $tag"),
+			),
+		/limit the legacy eight-asset contract/u,
+	);
+});
+
 test("rejects removal of the tracked native verifier invocation", () => {
 	assert.throws(
 		() =>
 			verifyReleaseWorkflowPolicy(
 				workflow.replace(
 					"node .github/scripts/verify-macos-published-release.mjs",
-					"node .github/scripts/verify-macos-signing-receipt.mjs",
+					"node .github/scripts/verify-macos-runtime-placeholder.mjs",
 				),
 			),
 		/tracked native macOS release verifier/u,
