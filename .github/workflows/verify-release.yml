@@ -56,6 +56,34 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           $ErrorActionPreference = "Stop"
+          function Assert-MagentaPlainTree([string]$Root) {
+            $rootItem = Get-Item -LiteralPath $Root -Force -ErrorAction Stop
+            if (-not $rootItem.PSIsContainer -or ($rootItem.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) {
+              throw "Magenta isolated root is not a plain directory: $Root"
+            }
+            $pending = New-Object "System.Collections.Generic.Stack[string]"
+            [void]$pending.Push($rootItem.FullName)
+            while ($pending.Count -gt 0) {
+              $directory = $pending.Pop()
+              foreach ($child in @(Get-ChildItem -LiteralPath $directory -Force -ErrorAction Stop)) {
+                if (($child.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) {
+                  throw "Magenta isolated tree contains a reparse point: $($child.FullName)"
+                }
+                if ($child.PSIsContainer) { [void]$pending.Push($child.FullName) }
+              }
+            }
+          }
+
+          function Assert-MagentaRunnerTempChild([string]$Path) {
+            $separators = [char[]]@([IO.Path]::DirectorySeparatorChar, [IO.Path]::AltDirectorySeparatorChar)
+            $runnerTemp = [IO.Path]::GetFullPath($env:RUNNER_TEMP).TrimEnd($separators)
+            $candidate = [IO.Path]::GetFullPath($Path).TrimEnd($separators)
+            $runnerTempPrefix = $runnerTemp + [IO.Path]::DirectorySeparatorChar
+            if (-not $candidate.StartsWith($runnerTempPrefix, [StringComparison]::OrdinalIgnoreCase)) {
+              throw "Refusing to clean a Magenta path outside RUNNER_TEMP: $candidate"
+            }
+          }
+
           $tag = $env:RELEASE_TAG
           if ($tag -cnotmatch '^v(?<version>0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$') {
             throw "Release tag must be exact vMAJOR.MINOR.PATCH: $tag"
@@ -135,54 +163,142 @@ jobs:
             --repository "Minions-Land/Magenta"
           if ($LASTEXITCODE -ne 0) { throw "Source tag binding verification failed" }
 
-          $assetServer = Start-Process -FilePath "python" -ArgumentList @(
-            "-m", "http.server", "8766", "--bind", "127.0.0.1", "--directory", $downloadDirectory
-          ) -PassThru -WindowStyle Hidden
+          $isolatedConfigRoot = Join-Path $env:RUNNER_TEMP "magenta-config-$([Guid]::NewGuid().ToString('N'))"
+          $isolatedHome = Join-Path $isolatedConfigRoot "home"
+          $codingAgentDirectory = Join-Path $isolatedConfigRoot "agent"
+          $isolatedTemp = Join-Path $isolatedConfigRoot "temp"
+          $isolatedAppData = Join-Path $isolatedHome "AppData/Roaming"
+          $isolatedLocalAppData = Join-Path $isolatedHome "AppData/Local"
+          New-Item -ItemType Directory -Path $isolatedConfigRoot -ErrorAction Stop | Out-Null
+          foreach ($directory in @(
+            $isolatedHome, $codingAgentDirectory, $isolatedTemp,
+            $isolatedAppData, $isolatedLocalAppData
+          )) {
+            New-Item -ItemType Directory -Force -Path $directory | Out-Null
+          }
+          Assert-MagentaPlainTree $isolatedConfigRoot
+
+          $isolatedEnvironment = [ordered]@{
+            "APPDATA" = $isolatedAppData
+            "HOME" = $isolatedHome
+            "LOCALAPPDATA" = $isolatedLocalAppData
+            "MAGENTA_CODING_AGENT_DIR" = $codingAgentDirectory
+            "MAGENTA_PEER_MESSAGE_DB" = (Join-Path $isolatedConfigRoot "messages.db")
+            "NO_COLOR" = "1"
+            "PI_OFFLINE" = "1"
+            "PI_SKIP_VERSION_CHECK" = "1"
+            "TEMP" = $isolatedTemp
+            "TMP" = $isolatedTemp
+            "USERPROFILE" = $isolatedHome
+          }
+          $originalEnvironment = @{}
+          foreach ($name in $isolatedEnvironment.Keys) {
+            $originalEnvironment[$name] = [Environment]::GetEnvironmentVariable($name, "Process")
+          }
           try {
-            $ready = $false
-            foreach ($attempt in 1..50) {
-              try {
-                Invoke-WebRequest -UseBasicParsing -Uri "http://127.0.0.1:8766/SHA256SUMS" -OutFile (Join-Path $env:RUNNER_TEMP "server-probe")
-                $ready = $true
-                break
-              } catch {
-                Start-Sleep -Milliseconds 100
-              }
+            foreach ($name in $isolatedEnvironment.Keys) {
+              [Environment]::SetEnvironmentVariable($name, $isolatedEnvironment[$name], "Process")
             }
-            if (-not $ready) { throw "Local verified-asset server did not become ready" }
+            $assetServer = Start-Process -FilePath "python" -ArgumentList @(
+              "-m", "http.server", "8766", "--bind", "127.0.0.1", "--directory", $downloadDirectory
+            ) -PassThru -WindowStyle Hidden
+            try {
+              $ready = $false
+              foreach ($attempt in 1..50) {
+                try {
+                  Invoke-WebRequest -UseBasicParsing -Uri "http://127.0.0.1:8766/SHA256SUMS" -OutFile (Join-Path $env:RUNNER_TEMP "server-probe")
+                  $ready = $true
+                  break
+                } catch {
+                  Start-Sleep -Milliseconds 100
+                }
+              }
+              if (-not $ready) { throw "Local verified-asset server did not become ready" }
 
-            & (Join-Path $downloadDirectory "install.ps1") `
-              -InstallDir $installDirectory `
-              -Version $tag `
-              -Repository "Minions-Land/Magenta-CLI" `
-              -AssetBaseUrl "http://127.0.0.1:8766" `
-              -NoPath
-            if ($LASTEXITCODE -ne 0) { throw "install.ps1 failed" }
+              & (Join-Path $downloadDirectory "install.ps1") `
+                -InstallDir $installDirectory `
+                -Version $tag `
+                -Repository "Minions-Land/Magenta-CLI" `
+                -AssetBaseUrl "http://127.0.0.1:8766" `
+                -NoPath
+              if ($LASTEXITCODE -ne 0) { throw "install.ps1 failed" }
+            } finally {
+              Stop-Process -Id $assetServer.Id -Force -ErrorAction SilentlyContinue
+              Wait-Process -Id $assetServer.Id -ErrorAction SilentlyContinue
+            }
+
+            $binary = Join-Path $installDirectory "magenta.exe"
+            $reportedVersion = (& $binary --version).Trim()
+            if ($LASTEXITCODE -ne 0 -or $reportedVersion -cne $version) {
+              throw "Installed version mismatch: expected $version, got $reportedVersion"
+            }
+
+            if ($requiresNineAssetContract) {
+              & $binary --help --offline smoke | Out-Null
+              if ($LASTEXITCODE -ne 0) { throw "Installed Magenta binary failed isolated helper startup" }
+
+              Assert-MagentaPlainTree $isolatedConfigRoot
+              $processToolsCache = Join-Path $isolatedConfigRoot "cache/process-tools"
+              $processToolsRootItem = Get-Item -LiteralPath $processToolsCache -Force -ErrorAction Stop
+              if (-not $processToolsRootItem.PSIsContainer -or ($processToolsRootItem.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) {
+                throw "process-tools cache root is not a plain directory"
+              }
+              $processToolsGenerations = @(
+                foreach ($entry in @(Get-ChildItem -LiteralPath $processToolsCache -Force -ErrorAction Stop)) {
+                  if ($entry.Name -cnotmatch '^[0-9a-f]{64}$') { continue }
+                  if (-not $entry.PSIsContainer -or ($entry.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) {
+                    throw "process-tools generation is not a plain directory: $($entry.FullName)"
+                  }
+                  $entry
+                }
+              )
+              if ($processToolsGenerations.Count -ne 1) {
+                throw "Expected exactly one process-tools digest generation"
+              }
+              $processToolsGeneration = $processToolsGenerations[0]
+              $processTools = Join-Path $processToolsGeneration.FullName "magenta-process-tools.exe"
+              $processToolsItem = Get-Item -LiteralPath $processTools -Force -ErrorAction Stop
+              if ($processToolsItem.PSIsContainer -or ($processToolsItem.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) {
+                throw "process-tools cache entry is not a regular file"
+              }
+              $processToolsHash = (Get-FileHash -LiteralPath $processTools -Algorithm SHA256).Hash.ToLowerInvariant()
+              if ($processToolsHash -cne $processToolsGeneration.Name) {
+                throw "process-tools cache digest does not match its directory name"
+              }
+              & $processTools --help | Out-Null
+              if ($LASTEXITCODE -ne 0) { throw "process-tools failed --help" }
+            } else {
+              & $binary --help | Out-Null
+              if ($LASTEXITCODE -ne 0) { throw "Installed legacy Magenta binary failed --help" }
+              $processTools = Join-Path $installDirectory "_magenta/process-tools/target/release/magenta-process-tools.exe"
+              $processToolsItem = Get-Item -LiteralPath $processTools -Force -ErrorAction Stop
+              if ($processToolsItem.PSIsContainer -or ($processToolsItem.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) {
+                throw "Legacy process-tools entry is not a regular file"
+              }
+              & $processTools --help | Out-Null
+              if ($LASTEXITCODE -ne 0) { throw "Legacy process-tools failed --help" }
+            }
+
+            $clipboard = Join-Path $installDirectory "runtime/node_modules/@mariozechner/clipboard-win32-x64-msvc/clipboard.win32-x64-msvc.node"
+            node -e 'const binding = require(process.argv[1]); if (typeof binding.getText !== "function") process.exit(1)' $clipboard
+            if ($LASTEXITCODE -ne 0) { throw "Windows clipboard native binding failed to load" }
+
+            & (Join-Path $downloadDirectory "install.ps1") -InstallDir $installDirectory -NoPath -Uninstall
+            if ($LASTEXITCODE -ne 0 -or (Test-Path -LiteralPath $installDirectory)) {
+              throw "install.ps1 uninstall verification failed"
+            }
           } finally {
-            Stop-Process -Id $assetServer.Id -Force -ErrorAction SilentlyContinue
-            Wait-Process -Id $assetServer.Id -ErrorAction SilentlyContinue
-          }
-
-          $binary = Join-Path $installDirectory "magenta.exe"
-          $reportedVersion = (& $binary --version).Trim()
-          if ($LASTEXITCODE -ne 0 -or $reportedVersion -cne $version) {
-            throw "Installed version mismatch: expected $version, got $reportedVersion"
-          }
-          & $binary --help | Out-Null
-          if ($LASTEXITCODE -ne 0) { throw "Installed Magenta binary failed --help" }
-
-          $processTools = Join-Path $installDirectory "_magenta/process-tools/target/release/magenta-process-tools.exe"
-          if (-not (Test-Path -LiteralPath $processTools -PathType Leaf)) { throw "process-tools was not extracted" }
-          & $processTools --help | Out-Null
-          if ($LASTEXITCODE -ne 0) { throw "process-tools failed --help" }
-
-          $clipboard = Join-Path $installDirectory "runtime/node_modules/@mariozechner/clipboard-win32-x64-msvc/clipboard.win32-x64-msvc.node"
-          node -e 'const binding = require(process.argv[1]); if (typeof binding.getText !== "function") process.exit(1)' $clipboard
-          if ($LASTEXITCODE -ne 0) { throw "Windows clipboard native binding failed to load" }
-
-          & (Join-Path $downloadDirectory "install.ps1") -InstallDir $installDirectory -NoPath -Uninstall
-          if ($LASTEXITCODE -ne 0 -or (Test-Path -LiteralPath $installDirectory)) {
-            throw "install.ps1 uninstall verification failed"
+            foreach ($name in $isolatedEnvironment.Keys) {
+              [Environment]::SetEnvironmentVariable($name, $originalEnvironment[$name], "Process")
+            }
+            try {
+              Assert-MagentaRunnerTempChild $isolatedConfigRoot
+              Assert-MagentaPlainTree $isolatedConfigRoot
+              Remove-Item -LiteralPath $isolatedConfigRoot -Recurse -Force -ErrorAction Stop
+            } catch {
+              Write-Warning "Preserving unsafe Magenta runner temp state at ${isolatedConfigRoot}: $($_.Exception.Message)"
+              throw
+            }
           }
 
           Write-Host "verified_tag=$tag"

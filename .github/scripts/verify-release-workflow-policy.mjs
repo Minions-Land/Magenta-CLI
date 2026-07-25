@@ -70,6 +70,49 @@ export function verifyReleaseWorkflowPolicy(workflow) {
 		/- name: Verify assets, installer, and native runtime[\s\S]*?node \(Join-Path \$env:GITHUB_WORKSPACE "\.github\/scripts\/verify-source-commit\.mjs"\)[\s\S]*?--repository "Minions-Land\/Magenta"/u,
 		"windows-runtime must verify SOURCE_COMMIT against the fixed public source tag before asset execution.",
 	);
+	requirePattern(
+		windowsJob,
+		/function Assert-MagentaPlainTree\(\[string\]\$Root\)[\s\S]*?Get-Item -LiteralPath \$Root -Force -ErrorAction Stop[\s\S]*?FileAttributes\]::ReparsePoint[\s\S]*?Get-ChildItem -LiteralPath \$directory -Force -ErrorAction Stop[\s\S]*?isolated tree contains a reparse point/u,
+		"windows-runtime must reject reparse points throughout its isolated tree.",
+	);
+	requirePattern(
+		windowsJob,
+		/function Assert-MagentaRunnerTempChild\(\[string\]\$Path\)[\s\S]*?GetFullPath\(\$env:RUNNER_TEMP\)[\s\S]*?GetFullPath\(\$Path\)[\s\S]*?StartsWith\(\$runnerTempPrefix, \[StringComparison\]::OrdinalIgnoreCase\)[\s\S]*?outside RUNNER_TEMP/u,
+		"windows-runtime cleanup must prove its isolated root remains under RUNNER_TEMP.",
+	);
+	requirePattern(
+		windowsJob,
+		/\$isolatedConfigRoot = Join-Path \$env:RUNNER_TEMP "magenta-config-\$\(\[Guid\]::NewGuid\(\)\.ToString\('N'\)\)"[\s\S]*?\$isolatedHome = Join-Path \$isolatedConfigRoot "home"[\s\S]*?New-Item -ItemType Directory -Path \$isolatedConfigRoot -ErrorAction Stop \| Out-Null[\s\S]*?Assert-MagentaPlainTree \$isolatedConfigRoot[\s\S]*?\$isolatedEnvironment = \[ordered\]@\{[\s\S]*?"APPDATA" = \$isolatedAppData[\s\S]*?"HOME" = \$isolatedHome[\s\S]*?"LOCALAPPDATA" = \$isolatedLocalAppData[\s\S]*?"MAGENTA_CODING_AGENT_DIR" = \$codingAgentDirectory[\s\S]*?"MAGENTA_PEER_MESSAGE_DB" = \(Join-Path \$isolatedConfigRoot "messages\.db"\)[\s\S]*?"TEMP" = \$isolatedTemp[\s\S]*?"TMP" = \$isolatedTemp[\s\S]*?"USERPROFILE" = \$isolatedHome[\s\S]*?\$originalEnvironment = @\{\}[\s\S]*?\$originalEnvironment\[\$name\] = \[Environment\]::GetEnvironmentVariable\(\$name, "Process"\)[\s\S]*?\[Environment\]::SetEnvironmentVariable\(\$name, \$isolatedEnvironment\[\$name\], "Process"\)[\s\S]*?& \(Join-Path \$downloadDirectory "install\.ps1"\)/u,
+		"windows-runtime must isolate installer and binary startup under a fresh RUNNER_TEMP-owned user and config environment.",
+	);
+	if (/\$env:(?:HOME|USERPROFILE)|\[Environment\]::GetFolderPath/iu.test(windowsJob)) {
+		throw new Error("windows-runtime helper verification must not derive paths from the runner user profile.");
+	}
+	requirePattern(
+		windowsJob,
+		/if \(\$requiresNineAssetContract\) \{[\s\S]*?& \$binary --help --offline smoke[\s\S]*?Assert-MagentaPlainTree \$isolatedConfigRoot[\s\S]*?\$processToolsCache = Join-Path \$isolatedConfigRoot "cache\/process-tools"/u,
+		"windows-runtime must materialize current helpers through the isolated non-pure smoke path.",
+	);
+	requirePattern(
+		windowsJob,
+		/\$processToolsRootItem = Get-Item -LiteralPath \$processToolsCache -Force -ErrorAction Stop[\s\S]*?\$processToolsRootItem\.PSIsContainer[\s\S]*?FileAttributes\]::ReparsePoint[\s\S]*?Get-ChildItem -LiteralPath \$processToolsCache -Force -ErrorAction Stop[\s\S]*?\$entry\.Name -cnotmatch '\^\[0-9a-f\]\{64\}\$'[\s\S]*?continue[\s\S]*?\$entry\.PSIsContainer[\s\S]*?FileAttributes\]::ReparsePoint[\s\S]*?\$processToolsGenerations\.Count -ne 1/u,
+		"windows-runtime must count only plain SHA-256 process-tools generations while allowing maintenance entries.",
+	);
+	requirePattern(
+		windowsJob,
+		/\$processTools = Join-Path \$processToolsGeneration\.FullName "magenta-process-tools\.exe"[\s\S]*?\$processToolsItem = Get-Item -LiteralPath \$processTools -Force -ErrorAction Stop[\s\S]*?\$processToolsItem\.PSIsContainer[\s\S]*?FileAttributes\]::ReparsePoint[\s\S]*?Get-FileHash -LiteralPath \$processTools -Algorithm SHA256[\s\S]*?\$processToolsHash -cne \$processToolsGeneration\.Name[\s\S]*?& \$processTools --help/u,
+		"windows-runtime must verify a plain cached process-tools file, digest binding, and startup.",
+	);
+	requirePattern(
+		windowsJob,
+		/\} else \{[\s\S]*?& \$binary --help[\s\S]*?\$processTools = Join-Path \$installDirectory "_magenta\/process-tools\/target\/release\/magenta-process-tools\.exe"[\s\S]*?Get-Item -LiteralPath \$processTools -Force -ErrorAction Stop[\s\S]*?\$processToolsItem\.PSIsContainer[\s\S]*?FileAttributes\]::ReparsePoint[\s\S]*?& \$processTools --help/u,
+		"windows-runtime must retain native helper verification for the two legacy installer contracts.",
+	);
+	requirePattern(
+		windowsJob,
+		/finally \{[\s\S]*?SetEnvironmentVariable\(\$name, \$originalEnvironment\[\$name\], "Process"\)[\s\S]*?Assert-MagentaRunnerTempChild \$isolatedConfigRoot\s*Assert-MagentaPlainTree \$isolatedConfigRoot\s*Remove-Item -LiteralPath \$isolatedConfigRoot -Recurse -Force -ErrorAction Stop[\s\S]*?Write-Warning "Preserving unsafe Magenta runner temp state[\s\S]*?throw/u,
+		"windows-runtime must restore its environment and fail closed before recursively cleaning only a verified plain RUNNER_TEMP child.",
+	);
 	const macosJob = readJobBlock(workflow, "macos-runtime");
 	requirePattern(
 		macosJob,

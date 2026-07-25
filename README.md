@@ -170,7 +170,7 @@ magenta --update
 > - **下载慢/受限**：设置镜像后重试 `--update`，或用一键安装脚本重装。bash: `export MAGENTA_GITHUB_MIRROR=https://ghfast.top`；PowerShell: `$env:MAGENTA_GITHUB_MIRROR = "https://ghfast.top"`
 > - **API 不可达**：版本元数据始终直连 api.github.com，镜像不会代理元数据；需先打通到 api.github.com 的网络。
 > - **API 限流**（HTTP 403，60 次/小时）：等待错误里的重置时间，或设置 `MAGENTA_GITHUB_TOKEN`（公开仓库无需特殊权限）
-> - **旧版本断层**：早期版本使用不同的发布格式，无法通过 `--update` 升级到当前的拆分资产格式（二进制 + 资源包 + 校验和），必须用上方的安装脚本重装。
+> - **旧版本断层**：`v0.0.29` 及更早版本的内置 updater 只认识旧 helper 布局，无法通过 `--update` 升级到 `v0.1.0+`。新版本发布后请运行上方经过 tag、大小和摘要校验的安装器；它会迁移可证明属于 Magenta 的旧安装，并保留 `~/.magenta` 中的设置、凭据、消息和会话。
 
 ## ✨ Features
 

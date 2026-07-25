@@ -70,7 +70,7 @@ test("does not expose the GitHub token to Windows repository tests", () => {
 	assert.throws(() => verifyReleaseWorkflowPolicy(wrongStepToken), /scope GH_TOKEN/u);
 });
 
-test("keeps Windows release downloads bounded and asset-ID pinned", () => {
+test("keeps Windows release downloads bounded and helper startup isolated", () => {
 	assert.throws(
 		() =>
 			verifyReleaseWorkflowPolicy(
@@ -83,6 +83,141 @@ test("keeps Windows release downloads bounded and asset-ID pinned", () => {
 		'          Invoke-WebRequest "https://api.github.com/repos/Minions-Land/Magenta-CLI/releases/assets/1" -OutFile asset\n          try {',
 	);
 	assert.throws(() => verifyReleaseWorkflowPolicy(directDownload), /must not download unbounded release assets/u);
+	assert.throws(
+		() =>
+			verifyReleaseWorkflowPolicy(
+				workflow.replace(
+					'$isolatedConfigRoot = Join-Path $env:RUNNER_TEMP "magenta-config-$([Guid]::NewGuid().ToString(\'N\'))"',
+					'$isolatedConfigRoot = Join-Path $env:USERPROFILE ".magenta"',
+				),
+			),
+		/RUNNER_TEMP-owned user and config environment/u,
+	);
+	assert.throws(
+		() =>
+			verifyReleaseWorkflowPolicy(
+				workflow.replace(
+					"New-Item -ItemType Directory -Path $isolatedConfigRoot -ErrorAction Stop | Out-Null",
+					"New-Item -ItemType Directory -Force -Path $isolatedConfigRoot -ErrorAction Stop | Out-Null",
+				),
+			),
+		/RUNNER_TEMP-owned user and config environment/u,
+	);
+	assert.throws(
+		() =>
+			verifyReleaseWorkflowPolicy(
+				workflow.replace(
+					"if (-not $rootItem.PSIsContainer -or ($rootItem.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) {",
+					"if (-not $rootItem.PSIsContainer) {",
+				),
+			),
+		/reject reparse points throughout its isolated tree/u,
+	);
+	assert.throws(
+		() =>
+			verifyReleaseWorkflowPolicy(
+				workflow.replace('"APPDATA" = $isolatedAppData', '"APPDATA" = $env:APPDATA'),
+			),
+		/RUNNER_TEMP-owned user and config environment/u,
+	);
+	assert.throws(
+		() =>
+			verifyReleaseWorkflowPolicy(
+				workflow.replace('"TMP" = $isolatedTemp', '"TMP" = $env:TMP'),
+			),
+		/RUNNER_TEMP-owned user and config environment/u,
+	);
+	assert.throws(
+		() =>
+			verifyReleaseWorkflowPolicy(
+				workflow.replace("& $binary --help --offline smoke", "& $binary --help"),
+			),
+		/isolated non-pure smoke path/u,
+	);
+	assert.throws(
+		() =>
+			verifyReleaseWorkflowPolicy(
+				workflow.replace(
+					"$processToolsGenerations.Count -ne 1",
+					"$processToolsGenerations.Count -lt 1",
+				),
+			),
+		/count only plain SHA-256 process-tools generations/u,
+	);
+	assert.throws(
+		() =>
+			verifyReleaseWorkflowPolicy(
+				workflow.replace(
+					"Get-ChildItem -LiteralPath $processToolsCache -Force -ErrorAction Stop",
+					"Get-ChildItem -LiteralPath $processToolsCache -ErrorAction Stop",
+				),
+			),
+		/allowing maintenance entries/u,
+	);
+	assert.throws(
+		() =>
+			verifyReleaseWorkflowPolicy(
+				workflow.replace(
+					"if (-not $entry.PSIsContainer -or ($entry.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) {",
+					"if (-not $entry.PSIsContainer) {",
+				),
+			),
+		/plain SHA-256 process-tools generations/u,
+	);
+	assert.throws(
+		() =>
+			verifyReleaseWorkflowPolicy(
+				workflow.replace(
+					"$processToolsHash -cne $processToolsGeneration.Name",
+					"$processToolsHash -cne $processToolsHash",
+				),
+			),
+		/plain cached process-tools file, digest binding, and startup/u,
+	);
+	assert.throws(
+		() =>
+			verifyReleaseWorkflowPolicy(
+				workflow.replace(
+					"if ($processToolsItem.PSIsContainer -or ($processToolsItem.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) {",
+					"if ($processToolsItem.PSIsContainer) {",
+				),
+			),
+		/plain cached process-tools file/u,
+	);
+	assert.throws(
+		() =>
+			verifyReleaseWorkflowPolicy(
+				workflow.replace(
+					"Assert-MagentaRunnerTempChild $isolatedConfigRoot\n              Assert-MagentaPlainTree $isolatedConfigRoot",
+					"Assert-MagentaPlainTree $isolatedConfigRoot",
+				),
+			),
+		/prove its isolated root remains under RUNNER_TEMP|fail closed before recursively cleaning/u,
+	);
+	assert.throws(
+		() =>
+			verifyReleaseWorkflowPolicy(
+				workflow.replace(
+					'$processTools = Join-Path $installDirectory "_magenta/process-tools/target/release/magenta-process-tools.exe"',
+					'$processTools = Join-Path $installDirectory "legacy-process-tools.exe"',
+				),
+			),
+		/retain native helper verification for the two legacy installer contracts/u,
+	);
+	assert.throws(
+		() =>
+			verifyReleaseWorkflowPolicy(
+				workflow.replace(
+					`              if ($processToolsItem.PSIsContainer -or ($processToolsItem.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) {
+                throw "Legacy process-tools entry is not a regular file"
+              }`,
+					`              if ($processToolsItem.PSIsContainer) {
+                throw "Legacy process-tools entry is not a regular file"
+              }`,
+				),
+			),
+		/retain native helper verification for the two legacy installer contracts/u,
+	);
 });
 
 test("keeps repository permissions read-only by default and requires source binding", () => {
