@@ -21,7 +21,8 @@ function requirePattern(content, pattern, message) {
 	if (!pattern.test(content)) throw new Error(message);
 }
 
-export function verifyReleaseWorkflowPolicy(workflow) {
+export function verifyReleaseWorkflowPolicy(input) {
+	const workflow = input.replace(/\r\n?/gu, "\n");
 	requirePattern(
 		workflow,
 		/^permissions:\s*\n  contents:\s*read\s*$/mu,
@@ -48,6 +49,11 @@ export function verifyReleaseWorkflowPolicy(workflow) {
 		windowsJob,
 		/^    permissions:\s*\n      contents:\s*write\s*$/mu,
 		"windows-runtime must scope draft-release access to the job that needs it.",
+	);
+	requirePattern(
+		windowsJob,
+		/^        uses: actions\/checkout@[0-9a-f]{40}[^\n]*\n        with:\n          persist-credentials: false\s*$/mu,
+		"windows-runtime checkout must be commit-pinned with persisted credentials disabled.",
 	);
 	if (/^      (?:GH_TOKEN|GITHUB_TOKEN):\s*/mu.test(windowsJob)) {
 		throw new Error("windows-runtime must not expose a GitHub token to repository verifier tests.");

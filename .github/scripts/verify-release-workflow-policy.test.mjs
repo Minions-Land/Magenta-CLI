@@ -6,10 +6,14 @@ import test from "node:test";
 import { verifyReleaseWorkflowPolicy } from "./verify-release-workflow-policy.mjs";
 
 const workflowPath = resolve(dirname(fileURLToPath(import.meta.url)), "../workflows/verify-release.yml");
-const workflow = readFileSync(workflowPath, "utf8");
+const workflow = readFileSync(workflowPath, "utf8").replace(/\r\n?/gu, "\n");
 
 test("current release workflow retains the native macOS runtime gate", () => {
 	assert.equal(verifyReleaseWorkflowPolicy(workflow), true);
+});
+
+test("accepts the workflow after a Windows CRLF checkout", () => {
+	assert.equal(verifyReleaseWorkflowPolicy(workflow.replace(/\r?\n/gu, "\r\n")), true);
 });
 
 test("rejects removal or soft failure of the macOS runtime job", () => {
@@ -68,6 +72,13 @@ test("does not expose the GitHub token to Windows repository tests", () => {
 		"          GH_TOKEN: ${{ secrets.MAGENTA_CLI_RELEASE_TOKEN }}",
 	);
 	assert.throws(() => verifyReleaseWorkflowPolicy(wrongStepToken), /scope GH_TOKEN/u);
+});
+
+test("requires a commit-pinned credential-free Windows checkout", () => {
+	assert.throws(
+		() => verifyReleaseWorkflowPolicy(workflow.replace("persist-credentials: false", "persist-credentials: true")),
+		/windows-runtime checkout must be commit-pinned with persisted credentials disabled/u,
+	);
 });
 
 test("keeps Windows release downloads bounded and helper startup isolated", () => {

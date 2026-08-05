@@ -5,10 +5,17 @@ import { fileURLToPath } from "node:url";
 import test from "node:test";
 import { verifyCiWorkflowPolicy } from "./verify-ci-workflow-policy.mjs";
 
-const workflow = readFileSync(resolve(dirname(fileURLToPath(import.meta.url)), "../workflows/ci.yml"), "utf8");
+const workflow = readFileSync(resolve(dirname(fileURLToPath(import.meta.url)), "../workflows/ci.yml"), "utf8").replace(
+	/\r\n?/gu,
+	"\n",
+);
 
 test("current distribution CI runs the complete fail-closed verifier suite", () => {
 	assert.equal(verifyCiWorkflowPolicy(workflow), true);
+});
+
+test("accepts the workflow after a Windows CRLF checkout", () => {
+	assert.equal(verifyCiWorkflowPolicy(workflow.replace(/\r?\n/gu, "\r\n")), true);
 });
 
 test("rejects credential persistence, missing tests, or soft failure", () => {

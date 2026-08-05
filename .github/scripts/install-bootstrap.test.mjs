@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { chmodSync, mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { dirname, join, resolve } from "node:path";
+import { delimiter, dirname, join, resolve } from "node:path";
 import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import test from "node:test";
@@ -49,7 +49,7 @@ cp "$FAKE_RELEASE_METADATA" "$output"
 				FAKE_CURL_LOG: curlLogPath,
 				FAKE_RELEASE_METADATA: metadataPath,
 				MAGENTA_GITHUB_TOKEN: "",
-				PATH: `${binDirectory}:${process.env.PATH ?? ""}`,
+				PATH: [binDirectory, process.env.PATH ?? ""].filter(Boolean).join(delimiter),
 				TMPDIR: temporaryDirectory,
 			},
 			timeout: 10_000,

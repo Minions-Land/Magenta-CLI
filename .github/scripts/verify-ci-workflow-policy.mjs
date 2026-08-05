@@ -11,7 +11,8 @@ function requirePattern(content, pattern, message) {
 	if (!pattern.test(content)) throw new Error(message);
 }
 
-export function verifyCiWorkflowPolicy(workflow) {
+export function verifyCiWorkflowPolicy(input) {
+	const workflow = input.replace(/\r\n?/gu, "\n");
 	requirePattern(workflow, /^\s*pull_request:\s*$/mu, "distribution CI must run for pull requests.");
 	requirePattern(workflow, /^\s*push:\s*$/mu, "distribution CI must run for pushes.");
 	requirePattern(

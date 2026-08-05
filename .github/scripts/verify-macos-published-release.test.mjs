@@ -3,7 +3,7 @@ import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { basename, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import test from "node:test";
 import {
@@ -156,7 +156,7 @@ test("starts the native CLI and materialized helpers in a secret-free home", () 
 			};
 		}
 		if (command.endsWith("/lipo")) return { status: 0, stderr: "", stdout: "arm64\n" };
-		if (contracts.some(({ kind }) => command.endsWith(`/${kind}`))) {
+		if (contracts.some(({ kind }) => basename(command) === kind)) {
 			helperRuns.push({ args, command, env: options.env });
 			return { status: 0, stderr: "", stdout: "help\n" };
 		}
@@ -193,7 +193,9 @@ test("starts the native CLI and materialized helpers in a secret-free home", () 
 	}
 });
 
-test("keeps verified downloads private and enables only the native x64 outer binary before startup", async () => {
+test("keeps verified downloads private and enables only the native x64 outer binary before startup", {
+	skip: process.platform === "win32" ? "POSIX file modes are not represented on Windows" : false,
+}, async () => {
 	const root = mkdtempSync(join(tmpdir(), "magenta-cli-native-mode-"));
 	const releaseDir = join(root, "release");
 	mkdirSync(releaseDir, { mode: 0o700 });
@@ -595,7 +597,9 @@ test("checks and loads the universal macOS clipboard payload", () => {
 	}
 });
 
-test("extracts only the exact clipboard archive member into a regular file", () => {
+test("extracts only the exact clipboard archive member into a regular file", {
+	skip: process.platform === "win32" ? "the macOS verifier requires /usr/bin/tar" : false,
+}, () => {
 	const root = mkdtempSync(join(tmpdir(), "magenta-cli-clipboard-archive-"));
 	const sourceRoot = join(root, "source");
 	const sourcePath = join(sourceRoot, MACOS_CLIPBOARD_PAYLOAD.resourcePath);
