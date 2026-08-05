@@ -11,6 +11,11 @@ const RELEASE_TAG_PATTERN = /^v(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/u;
 const OBJECT_SHA_PATTERN = /^[0-9a-f]{40}(?:[0-9a-f]{24})?$/u;
 const MAX_RESPONSE_BYTES = 1024 * 1024;
 const REQUEST_TIMEOUT_MS = 30_000;
+const MAX_RATE_LIMIT_RETRIES = 2;
+const MAX_RATE_LIMIT_WAIT_MS = 60_000;
+const RATE_LIMIT_RESET_GRACE_MS = 1_000;
+const RATE_LIMIT_FALLBACK_DELAYS_MS = [1_000, 2_000];
+const IMF_FIXDATE_PATTERN = /^(?:Mon|Tue|Wed|Thu|Fri|Sat|Sun), (?:0[1-9]|[12]\d|3[01]) (?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec) \d{4} (?:[01]\d|2[0-3]):[0-5]\d:[0-5]\d GMT$/u;
 const MAX_TAG_DEPTH = 8;
 const LEGACY_SOURCE_COMMIT_TAGS = new Set(["v0.0.27", "v0.0.29"]);
 
@@ -76,9 +81,68 @@ function sourceApiHeaders(token) {
 	return headers;
 }
 
-async function fetchJson(fetchImpl, url, token) {
+function sleep(milliseconds) {
+	return new Promise((resolveSleep) => setTimeout(resolveSleep, milliseconds));
+}
+
+function parseRetryAfter(value, now) {
+	if (typeof value !== "string") return undefined;
+	const trimmed = value.trim();
+	if (/^\d+$/u.test(trimmed)) {
+		const milliseconds = Number(trimmed) * 1_000;
+		return Number.isSafeInteger(milliseconds) ? milliseconds : Number.POSITIVE_INFINITY;
+	}
+	if (!IMF_FIXDATE_PATTERN.test(trimmed)) return undefined;
+	const retryAt = Date.parse(trimmed);
+	if (!Number.isFinite(retryAt) || new Date(retryAt).toUTCString() !== trimmed) return undefined;
+	return Math.max(0, retryAt - now);
+}
+
+function parseRateLimitReset(value, now) {
+	if (typeof value !== "string" || !/^\d+$/u.test(value.trim())) return undefined;
+	const resetAt = Number(value.trim()) * 1_000;
+	if (!Number.isSafeInteger(resetAt)) return Number.POSITIVE_INFINITY;
+	return Math.max(0, resetAt - now + RATE_LIMIT_RESET_GRACE_MS);
+}
+
+function rateLimitDelay(response, retryCount, now) {
+	if (response.status !== 429 && response.status !== 403) return undefined;
+	const retryAfter = parseRetryAfter(response.headers.get("retry-after"), now);
+	const remainingIsZero = response.headers.get("x-ratelimit-remaining")?.trim() === "0";
+	if (response.status === 403 && retryAfter === undefined && !remainingIsZero) return undefined;
+	if (retryAfter !== undefined) return retryAfter;
+	if (remainingIsZero) {
+		const resetDelay = parseRateLimitReset(response.headers.get("x-ratelimit-reset"), now);
+		if (resetDelay !== undefined) return resetDelay;
+	}
+	return RATE_LIMIT_FALLBACK_DELAYS_MS[Math.min(retryCount, RATE_LIMIT_FALLBACK_DELAYS_MS.length - 1)];
+}
+
+async function discardFailureBody(response) {
+	if (!response.body) return;
+	const reader = response.body.getReader();
+	let total = 0;
+	try {
+		while (true) {
+			const result = await reader.read();
+			if (result.done) return;
+			total += result.value?.byteLength ?? 0;
+			if (total > MAX_RESPONSE_BYTES) {
+				await reader.cancel().catch(() => undefined);
+				return;
+			}
+		}
+	} catch (error) {
+		await reader.cancel().catch(() => undefined);
+		throw error;
+	} finally {
+		reader.releaseLock();
+	}
+}
+
+async function fetchJsonAttempt(fetchImpl, url, token, retryState) {
 	const controller = new AbortController();
-	const timer = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+	const timer = setTimeout(() => controller.abort(), retryState.requestTimeoutMs);
 	let response;
 	try {
 		response = await fetchImpl(url, {
@@ -87,10 +151,13 @@ async function fetchJson(fetchImpl, url, token) {
 			signal: controller.signal,
 		});
 		if (response.status >= 300 && response.status < 400) {
+			await discardFailureBody(response);
 			throw new Error("Source repository API returned an unexpected redirect.");
 		}
 		if (!response.ok) {
-			throw new Error(`Source repository API request failed (${response.status}).`);
+			const retryDelay = rateLimitDelay(response, retryState.retryCount, retryState.nowImpl());
+			await discardFailureBody(response);
+			return { retryDelay, status: response.status };
 		}
 		if (!response.body) throw new Error("Source repository API returned no body.");
 		const reader = response.body.getReader();
@@ -114,12 +181,33 @@ async function fetchJson(fetchImpl, url, token) {
 			throw new Error("Source repository API response is not valid JSON.");
 		}
 		if (!isObject(data)) throw new Error("Source repository API response has an unexpected shape.");
-		return data;
+		return { data };
 	} catch (error) {
 		if (controller.signal.aborted) throw new Error("Source repository API request timed out.");
 		throw error;
 	} finally {
 		clearTimeout(timer);
+	}
+}
+
+async function fetchJson(fetchImpl, url, token, retryState) {
+	while (true) {
+		const result = await fetchJsonAttempt(fetchImpl, url, token, retryState);
+		if (Object.hasOwn(result, "data")) return result.data;
+		if (result.retryDelay === undefined) {
+			throw new Error(`Source repository API request failed (${result.status}).`);
+		}
+		const remainingWait = MAX_RATE_LIMIT_WAIT_MS - retryState.waitedMilliseconds;
+		if (
+			retryState.retryCount >= MAX_RATE_LIMIT_RETRIES ||
+			!Number.isFinite(result.retryDelay) ||
+			result.retryDelay > remainingWait
+		) {
+			throw new Error(`Source repository API rate limit retry budget exhausted (${result.status}).`);
+		}
+		retryState.retryCount += 1;
+		retryState.waitedMilliseconds += result.retryDelay;
+		await retryState.sleepImpl(result.retryDelay);
 	}
 }
 
@@ -151,9 +239,12 @@ function assertAnnotatedTag(tagObject, expectedTag, expectedSha, { root }) {
  */
 export async function verifySourceCommitBinding({
 	fetchImpl = fetch,
+	nowImpl = Date.now,
 	releaseDir,
 	releaseTag,
 	repository = SOURCE_REPOSITORY,
+	requestTimeoutMs = REQUEST_TIMEOUT_MS,
+	sleepImpl = sleep,
 	token,
 }) {
 	parseReleaseTag(releaseTag);
@@ -161,18 +252,22 @@ export async function verifySourceCommitBinding({
 	if (!requiresSourceCommitBinding(releaseTag)) {
 		return { releaseTag, sourceCommit: readSourceCommit(releaseDir), status: "not-required" };
 	}
+	if (!Number.isSafeInteger(requestTimeoutMs) || requestTimeoutMs < 1 || requestTimeoutMs > REQUEST_TIMEOUT_MS) {
+		throw new Error(`Source repository request timeout must be between 1 and ${REQUEST_TIMEOUT_MS} milliseconds.`);
+	}
 
 	const sourceCommit = readSourceCommit(releaseDir);
 	const encodedTag = encodeURIComponent(releaseTag);
 	const root = `${GITHUB_API_ROOT}/repos/${repository}`;
-	const ref = await fetchJson(fetchImpl, `${root}/git/ref/tags/${encodedTag}`, token);
+	const retryState = { nowImpl, requestTimeoutMs, retryCount: 0, sleepImpl, waitedMilliseconds: 0 };
+	const ref = await fetchJson(fetchImpl, `${root}/git/ref/tags/${encodedTag}`, token, retryState);
 	let tagSha = assertTagRef(ref, releaseTag);
 	const visited = new Set();
 	let peeledCommit;
 	for (let depth = 0; depth < MAX_TAG_DEPTH; depth += 1) {
 		if (visited.has(tagSha)) throw new Error("Source repository annotated tag chain contains a loop.");
 		visited.add(tagSha);
-		const tagObject = await fetchJson(fetchImpl, `${root}/git/tags/${tagSha}`, token);
+		const tagObject = await fetchJson(fetchImpl, `${root}/git/tags/${tagSha}`, token, retryState);
 		const target = assertAnnotatedTag(tagObject, releaseTag, tagSha, { root: depth === 0 });
 		if (target.type === "commit") {
 			peeledCommit = assertObjectSha(target.sha, "Peeled source commit");
