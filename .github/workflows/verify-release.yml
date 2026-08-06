@@ -25,8 +25,11 @@ concurrency:
 
 jobs:
   windows-runtime:
+    if: github.ref == 'refs/heads/main'
     permissions:
       contents: write
+    environment:
+      name: source-verification
     runs-on: windows-latest
     timeout-minutes: 20
     env:
@@ -37,6 +40,7 @@ jobs:
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
         with:
           persist-credentials: false
+          ref: refs/heads/main
 
       - name: Test verifier and public installation entrypoints
         shell: pwsh
@@ -54,8 +58,12 @@ jobs:
         shell: pwsh
         env:
           GH_TOKEN: ${{ github.token }}
+          MAGENTA_SOURCE_READ_TOKEN: ${{ secrets.MAGENTA_SOURCE_READ_TOKEN }}
         run: |
           $ErrorActionPreference = "Stop"
+          if ([string]::IsNullOrWhiteSpace($env:MAGENTA_SOURCE_READ_TOKEN)) {
+            throw "MAGENTA_SOURCE_READ_TOKEN is required for private source verification"
+          }
           function Assert-MagentaPlainTree([string]$Root) {
             $rootItem = Get-Item -LiteralPath $Root -Force -ErrorAction Stop
             if (-not $rootItem.PSIsContainer -or ($rootItem.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) {
@@ -157,11 +165,16 @@ jobs:
             throw "SOURCE_COMMIT is not a full Git object ID"
           }
 
-          & node (Join-Path $env:GITHUB_WORKSPACE ".github/scripts/verify-source-commit.mjs") `
-            --release-dir $downloadDirectory `
-            --release-tag $tag `
-            --repository "Minions-Land/Magenta"
-          if ($LASTEXITCODE -ne 0) { throw "Source tag binding verification failed" }
+          try {
+            & node (Join-Path $env:GITHUB_WORKSPACE ".github/scripts/verify-source-commit.mjs") `
+              --release-dir $downloadDirectory `
+              --release-tag $tag `
+              --repository "Minions-Land/Magenta" `
+              --require-main true
+            if ($LASTEXITCODE -ne 0) { throw "Source tag binding verification failed" }
+          } finally {
+            Remove-Item Env:MAGENTA_SOURCE_READ_TOKEN -ErrorAction SilentlyContinue
+          }
 
           $isolatedConfigRoot = Join-Path $env:RUNNER_TEMP "magenta-config-$([Guid]::NewGuid().ToString('N'))"
           $isolatedHome = Join-Path $isolatedConfigRoot "home"
@@ -317,8 +330,11 @@ jobs:
           Write-Host "windows_uninstall=ok"
 
   macos-runtime:
+    if: github.ref == 'refs/heads/main'
     permissions:
       contents: write
+    environment:
+      name: source-verification
     name: Verify macOS runtime (${{ matrix.architecture }})
     strategy:
       fail-fast: false
@@ -338,14 +354,23 @@ jobs:
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
         with:
           persist-credentials: false
+          ref: refs/heads/main
 
       - name: Verify checksums, provenance, and native startup
         env:
           GH_TOKEN: ${{ github.token }}
+          MAGENTA_SOURCE_READ_TOKEN: ${{ secrets.MAGENTA_SOURCE_READ_TOKEN }}
         run: |
+          set -euo pipefail
+          trap 'unset GH_TOKEN GITHUB_TOKEN MAGENTA_SOURCE_READ_TOKEN' EXIT
+          if [ -z "${MAGENTA_SOURCE_READ_TOKEN:-}" ]; then
+            echo "::error::MAGENTA_SOURCE_READ_TOKEN is required for private source verification" >&2
+            exit 1
+          fi
           node .github/scripts/verify-macos-published-release.mjs \
             --allow-draft "$ALLOW_DRAFT" \
             --native-architecture "${{ matrix.architecture }}" \
             --release-dir "$RUNNER_TEMP/magenta-macos-release" \
             --release-tag "$RELEASE_TAG" \
-            --repository "Minions-Land/Magenta-CLI"
+            --repository "Minions-Land/Magenta-CLI" \
+            --require-main true

@@ -818,7 +818,7 @@ export function verifyDownloadedMacosRelease({
 	if (runCommand === runSystemCommand && normalizedNativeArchitecture !== normalizeMacosArchitecture(process.arch)) {
 		throw new Error("Requested native architecture does not match the macOS verifier host.");
 	}
-	if (process.env.GH_TOKEN || process.env.GITHUB_TOKEN) {
+	if (process.env.GH_TOKEN || process.env.GITHUB_TOKEN || process.env.MAGENTA_SOURCE_READ_TOKEN) {
 		throw new Error("GitHub tokens must be removed before downloaded assets are inspected.");
 	}
 	for (const binary of MACOS_OUTER_BINARIES) {
@@ -885,18 +885,25 @@ function parseArguments(args) {
 		"--release-dir",
 		"--release-tag",
 		"--repository",
+		"--require-main",
 	]);
 	for (const flag of values.keys()) if (!supported.has(flag)) throw new Error(`Unknown argument: ${flag}`);
-	for (const flag of supported) if (!values.has(flag)) throw new Error(`${flag} is required.`);
+	for (const flag of ["--allow-draft", "--native-architecture", "--release-dir", "--release-tag", "--repository"]) {
+		if (!values.has(flag)) throw new Error(`${flag} is required.`);
+	}
 	const allowDraftValue = values.get("--allow-draft");
 	if (allowDraftValue !== "true" && allowDraftValue !== "false") {
 		throw new Error("--allow-draft must be true or false.");
+	}
+	if (values.has("--require-main") && values.get("--require-main") !== "true") {
+		throw new Error("--require-main must be true.");
 	}
 	return {
 		allowDraft: allowDraftValue === "true",
 		nativeArchitecture: normalizeMacosArchitecture(values.get("--native-architecture")),
 		releaseDir: values.get("--release-dir"),
 		repository: values.get("--repository"),
+		requireMainHistory: true,
 		tag: values.get("--release-tag"),
 	};
 }
@@ -907,11 +914,13 @@ async function main(args) {
 	if (assetContract === "legacy-eight") {
 		delete process.env.GH_TOKEN;
 		delete process.env.GITHUB_TOKEN;
+		delete process.env.MAGENTA_SOURCE_READ_TOKEN;
 		process.stdout.write(`verified_tag=${options.tag}\nasset_contract=legacy-eight\nmacos_verification=not-required\n`);
 		return;
 	}
 
 	let token = process.env.GH_TOKEN;
+	let sourceReadToken = process.env.MAGENTA_SOURCE_READ_TOKEN;
 	try {
 		const release = await fetchReleaseMetadata({ ...options, token });
 		await downloadReleaseAssets({ ...options, release, token });
@@ -919,12 +928,16 @@ async function main(args) {
 			releaseDir: options.releaseDir,
 			releaseTag: options.tag,
 			repository: "Minions-Land/Magenta",
+			requireMainHistory: options.requireMainHistory,
+			token: sourceReadToken,
 		});
 		options.draft = release.draft;
 	} finally {
 		delete process.env.GH_TOKEN;
 		delete process.env.GITHUB_TOKEN;
+		delete process.env.MAGENTA_SOURCE_READ_TOKEN;
 		token = undefined;
+		sourceReadToken = undefined;
 	}
 
 	const manifest = await verifyReleaseChecksumManifest({ releaseDir: options.releaseDir });
@@ -944,6 +957,7 @@ if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1]
 	main(process.argv.slice(2)).catch((error) => {
 		delete process.env.GH_TOKEN;
 		delete process.env.GITHUB_TOKEN;
+		delete process.env.MAGENTA_SOURCE_READ_TOKEN;
 		process.stderr.write(`macOS published release verification failed: ${error.message}\n`);
 		process.exitCode = 1;
 	});

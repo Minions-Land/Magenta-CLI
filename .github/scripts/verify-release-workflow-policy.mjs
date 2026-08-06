@@ -6,6 +6,9 @@ import { fileURLToPath } from "node:url";
 
 const REPOSITORY_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
 const WORKFLOW_PATH = resolve(REPOSITORY_ROOT, ".github/workflows/verify-release.yml");
+const SOURCE_SECRET_ACCESS_PATTERN =
+	/\$\{\{\s*secrets\s*(?:\.\s*MAGENTA_SOURCE_READ_TOKEN|\[\s*["']MAGENTA_SOURCE_READ_TOKEN["']\s*\])\s*\}\}/gmu;
+const SOURCE_TOKEN_ENV_DECLARATION_PATTERN = /^[ \t]+MAGENTA_SOURCE_READ_TOKEN\s*:/gmu;
 
 function readJobBlock(workflow, jobName) {
 	const startPattern = new RegExp(`^  ${jobName}:\\s*$`, "mu");
@@ -15,6 +18,38 @@ function readJobBlock(workflow, jobName) {
 	const remaining = workflow.slice(start + match[0].length);
 	const nextJob = /^  [A-Za-z0-9_-]+:\s*$/mu.exec(remaining);
 	return workflow.slice(start, nextJob ? start + match[0].length + nextJob.index : undefined);
+}
+
+function escapeRegularExpression(value) {
+	return value.replace(/[.*+?^${}()|[\]\\]/gu, "\\$&");
+}
+
+function readNamedStepBlock(job, stepName, jobName) {
+	const startPattern = new RegExp(`^      - name: ${escapeRegularExpression(stepName)}\\s*$`, "mu");
+	const match = startPattern.exec(job);
+	if (!match) throw new Error(`${jobName} is missing the ${stepName} step.`);
+	const start = match.index;
+	const remaining = job.slice(start + match[0].length);
+	const nextStep = /^      - (?:name|uses):/mu.exec(remaining);
+	return job.slice(start, nextStep ? start + match[0].length + nextStep.index : undefined);
+}
+
+function matchCount(content, pattern) {
+	return content.match(pattern)?.length ?? 0;
+}
+
+function requireExclusiveSourceTokenStep(job, stepName, jobName) {
+	const step = readNamedStepBlock(job, stepName, jobName);
+	const exactDeclaration =
+		/^          MAGENTA_SOURCE_READ_TOKEN:\s*\$\{\{\s*secrets\.MAGENTA_SOURCE_READ_TOKEN\s*\}\}\s*$/gmu;
+	if (
+		matchCount(job, SOURCE_SECRET_ACCESS_PATTERN) !== 1 ||
+		matchCount(job, SOURCE_TOKEN_ENV_DECLARATION_PATTERN) !== 1 ||
+		matchCount(step, exactDeclaration) !== 1
+	) {
+		throw new Error(`${jobName} must inject MAGENTA_SOURCE_READ_TOKEN exactly once and only in the ${stepName} step.`);
+	}
+	return step;
 }
 
 function requirePattern(content, pattern, message) {
@@ -28,9 +63,6 @@ export function verifyReleaseWorkflowPolicy(input) {
 		/^permissions:\s*\n  contents:\s*read\s*$/mu,
 		"release verification workflow must default to read-only repository permissions.",
 	);
-	if (/MAGENTA_SOURCE_READ_TOKEN/u.test(workflow)) {
-		throw new Error("release verification must use anonymous public-source verification without a legacy source token.");
-	}
 	if (/macos-signing-receipt|Developer ID signing|notarization/iu.test(workflow)) {
 		throw new Error("release verification must not require the retired Apple signing contract.");
 	}
@@ -45,6 +77,33 @@ export function verifyReleaseWorkflowPolicy(input) {
 		"release verification must limit the legacy eight-asset contract to v0.0.27 and v0.0.29.",
 	);
 	const windowsJob = readJobBlock(workflow, "windows-runtime");
+	const macosJob = readJobBlock(workflow, "macos-runtime");
+	const windowsVerificationStep = requireExclusiveSourceTokenStep(
+		windowsJob,
+		"Verify assets, installer, and native runtime",
+		"windows-runtime",
+	);
+	const macosVerificationStep = requireExclusiveSourceTokenStep(
+		macosJob,
+		"Verify checksums, provenance, and native startup",
+		"macos-runtime",
+	);
+	if (
+		matchCount(workflow, SOURCE_SECRET_ACCESS_PATTERN) !== 2 ||
+		matchCount(workflow, SOURCE_TOKEN_ENV_DECLARATION_PATTERN) !== 2
+	) {
+		throw new Error("release verification must inject the source-read token only in the two native verification steps.");
+	}
+	requirePattern(
+		windowsJob,
+		/^    if: github\.ref == 'refs\/heads\/main'\s*$/mu,
+		"windows-runtime must run only from refs/heads/main.",
+	);
+	requirePattern(
+		windowsJob,
+		/^    environment:\s*\n      name: source-verification\s*$/mu,
+		"windows-runtime must use the dedicated source-verification environment.",
+	);
 	requirePattern(
 		windowsJob,
 		/^    permissions:\s*\n      contents:\s*write\s*$/mu,
@@ -52,16 +111,21 @@ export function verifyReleaseWorkflowPolicy(input) {
 	);
 	requirePattern(
 		windowsJob,
-		/^        uses: actions\/checkout@[0-9a-f]{40}[^\n]*\n        with:\n          persist-credentials: false\s*$/mu,
-		"windows-runtime checkout must be commit-pinned with persisted credentials disabled.",
+		/^        uses: actions\/checkout@[0-9a-f]{40}[^\n]*\n        with:\n          persist-credentials: false\n          ref: refs\/heads\/main\s*$/mu,
+		"windows-runtime checkout must be commit-pinned, credential-free, and fixed to refs/heads/main.",
 	);
 	if (/^      (?:GH_TOKEN|GITHUB_TOKEN):\s*/mu.test(windowsJob)) {
 		throw new Error("windows-runtime must not expose a GitHub token to repository verifier tests.");
 	}
 	requirePattern(
-		windowsJob,
-		/- name: Verify assets, installer, and native runtime[\s\S]*?\n        shell: pwsh\s*\n        env:\s*\n          GH_TOKEN:\s*\$\{\{ github\.token \}\}/u,
+		windowsVerificationStep,
+		/^      - name: Verify assets, installer, and native runtime\s*\n        shell: pwsh\s*\n        env:\s*\n          GH_TOKEN:\s*\$\{\{ github\.token \}\}/mu,
 		"windows-runtime must scope GH_TOKEN to the release-download step.",
+	);
+	requirePattern(
+		windowsVerificationStep,
+		/run:\s*\|\s*\n          \$ErrorActionPreference = "Stop"\s*\n          if \(\[string\]::IsNullOrWhiteSpace\(\$env:MAGENTA_SOURCE_READ_TOKEN\)\) \{\s*\n            throw "MAGENTA_SOURCE_READ_TOKEN is required for private source verification"\s*\n          \}/mu,
+		"windows-runtime must fail closed before work begins when the source-read token is missing.",
 	);
 	requirePattern(
 		windowsJob,
@@ -72,10 +136,13 @@ export function verifyReleaseWorkflowPolicy(input) {
 		throw new Error("windows-runtime must not download unbounded release assets directly in PowerShell.");
 	}
 	requirePattern(
-		windowsJob,
-		/- name: Verify assets, installer, and native runtime[\s\S]*?node \(Join-Path \$env:GITHUB_WORKSPACE "\.github\/scripts\/verify-source-commit\.mjs"\)[\s\S]*?--repository "Minions-Land\/Magenta"/u,
-		"windows-runtime must verify SOURCE_COMMIT against the fixed public source tag before asset execution.",
+		windowsVerificationStep,
+		/- name: Verify assets, installer, and native runtime[\s\S]*?try \{[\s\S]*?node \(Join-Path \$env:GITHUB_WORKSPACE "\.github\/scripts\/verify-source-commit\.mjs"\)[\s\S]*?--repository "Minions-Land\/Magenta"[\s\S]*?finally \{[\s\S]*?Remove-Item Env:MAGENTA_SOURCE_READ_TOKEN/u,
+		"windows-runtime must verify SOURCE_COMMIT against the source tag and scrub the read token before asset execution.",
 	);
+	if (!windowsVerificationStep.includes("--require-main true")) {
+		throw new Error("windows-runtime must verify that the source commit is on main history.");
+	}
 	requirePattern(
 		windowsJob,
 		/function Assert-MagentaPlainTree\(\[string\]\$Root\)[\s\S]*?Get-Item -LiteralPath \$Root -Force -ErrorAction Stop[\s\S]*?FileAttributes\]::ReparsePoint[\s\S]*?Get-ChildItem -LiteralPath \$directory -Force -ErrorAction Stop[\s\S]*?isolated tree contains a reparse point/u,
@@ -119,7 +186,16 @@ export function verifyReleaseWorkflowPolicy(input) {
 		/finally \{[\s\S]*?SetEnvironmentVariable\(\$name, \$originalEnvironment\[\$name\], "Process"\)[\s\S]*?Assert-MagentaRunnerTempChild \$isolatedConfigRoot\s*Assert-MagentaPlainTree \$isolatedConfigRoot\s*Remove-Item -LiteralPath \$isolatedConfigRoot -Recurse -Force -ErrorAction Stop[\s\S]*?Write-Warning "Preserving unsafe Magenta runner temp state[\s\S]*?throw/u,
 		"windows-runtime must restore its environment and fail closed before recursively cleaning only a verified plain RUNNER_TEMP child.",
 	);
-	const macosJob = readJobBlock(workflow, "macos-runtime");
+	requirePattern(
+		macosJob,
+		/^    if: github\.ref == 'refs\/heads\/main'\s*$/mu,
+		"macos-runtime must run only from refs/heads/main.",
+	);
+	requirePattern(
+		macosJob,
+		/^    environment:\s*\n      name: source-verification\s*$/mu,
+		"macos-runtime must use the dedicated source-verification environment.",
+	);
 	requirePattern(
 		macosJob,
 		/^    permissions:\s*\n      contents:\s*write\s*$/mu,
@@ -137,14 +213,22 @@ export function verifyReleaseWorkflowPolicy(input) {
 	);
 	requirePattern(
 		macosJob,
-		/^        uses: actions\/checkout@[0-9a-f]{40}[^\n]*\n        with:\n          persist-credentials: false\s*$/mu,
-		"macos-runtime checkout must be commit-pinned with persisted credentials disabled.",
+		/^        uses: actions\/checkout@[0-9a-f]{40}[^\n]*\n        with:\n          persist-credentials: false\n          ref: refs\/heads\/main\s*$/mu,
+		"macos-runtime checkout must be commit-pinned, credential-free, and fixed to refs/heads/main.",
+	);
+	requirePattern(
+		macosVerificationStep,
+		/GH_TOKEN:\s*\$\{\{ github\.token \}\}\s*\n\s+MAGENTA_SOURCE_READ_TOKEN:\s*\$\{\{ secrets\.MAGENTA_SOURCE_READ_TOKEN \}\}[\s\S]*?set -euo pipefail\s*\n\s+trap 'unset GH_TOKEN GITHUB_TOKEN MAGENTA_SOURCE_READ_TOKEN' EXIT\s*\n\s+if \[ -z "\$\{MAGENTA_SOURCE_READ_TOKEN:-\}" \]; then[\s\S]*?exit 1\s*\n\s+fi/u,
+		"macos-runtime must scope release and source-read tokens and scrub them before payload inspection.",
 	);
 	requirePattern(
 		macosJob,
-		/GH_TOKEN:\s*\$\{\{ github\.token \}\}[\s\S]*?node \.github\/scripts\/verify-macos-published-release\.mjs/u,
-		"macos-runtime must invoke the tracked native macOS release verifier with a scoped release token.",
+		/node \.github\/scripts\/verify-macos-published-release\.mjs/u,
+		"macos-runtime must invoke the tracked native macOS release verifier.",
 	);
+	if (!macosJob.includes("--require-main true")) {
+		throw new Error("macos-runtime must verify that the source commit is on main history.");
+	}
 	for (const argument of ["--allow-draft", "--native-architecture", "--release-dir", "--release-tag", "--repository"]) {
 		if (!macosJob.includes(argument)) throw new Error(`macos-runtime verifier invocation is missing ${argument}.`);
 	}

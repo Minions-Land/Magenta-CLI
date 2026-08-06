@@ -8,6 +8,12 @@ import { verifyReleaseWorkflowPolicy } from "./verify-release-workflow-policy.mj
 const workflowPath = resolve(dirname(fileURLToPath(import.meta.url)), "../workflows/verify-release.yml");
 const workflow = readFileSync(workflowPath, "utf8").replace(/\r\n?/gu, "\n");
 
+function replaceLast(input, search, replacement) {
+	const index = input.lastIndexOf(search);
+	assert.notEqual(index, -1, `test fixture is missing: ${search}`);
+	return `${input.slice(0, index)}${replacement}${input.slice(index + search.length)}`;
+}
+
 test("current release workflow retains the native macOS runtime gate", () => {
 	assert.equal(verifyReleaseWorkflowPolicy(workflow), true);
 });
@@ -32,7 +38,7 @@ test("rejects removal or soft failure of the macOS runtime job", () => {
 	assert.throws(() => verifyReleaseWorkflowPolicy(disabled), /must fail closed/u);
 });
 
-test("rejects an incomplete native macOS matrix or credential-persisting checkout", () => {
+test("rejects an incomplete native macOS matrix, untrusted refs, or credential-persisting checkout", () => {
 	assert.throws(
 		() => verifyReleaseWorkflowPolicy(workflow.replace("          - architecture: x64", "          - architecture: arm64")),
 		/native Apple Silicon and Intel/u,
@@ -46,7 +52,26 @@ test("rejects an incomplete native macOS matrix or credential-persisting checkou
 			verifyReleaseWorkflowPolicy(
 				workflow.replaceAll("          persist-credentials: false", "          persist-credentials: true"),
 			),
-		/persisted credentials disabled/u,
+		/credential-free, and fixed to refs\/heads\/main/u,
+	);
+	assert.throws(
+		() => verifyReleaseWorkflowPolicy(workflow.replace("    if: github.ref == 'refs/heads/main'", "    if: github.ref == 'refs/heads/release'")),
+		/windows-runtime must run only from refs\/heads\/main/u,
+	);
+	assert.throws(
+		() =>
+			verifyReleaseWorkflowPolicy(
+				replaceLast(workflow, "    if: github.ref == 'refs/heads/main'", "    if: github.ref == 'refs/heads/release'"),
+			),
+		/macos-runtime must run only from refs\/heads\/main/u,
+	);
+	assert.throws(
+		() => verifyReleaseWorkflowPolicy(workflow.replace("          ref: refs/heads/main", "          ref: refs/heads/release")),
+		/credential-free, and fixed to refs\/heads\/main/u,
+	);
+	assert.throws(
+		() => verifyReleaseWorkflowPolicy(replaceLast(workflow, "          ref: refs/heads/main", "          ref: refs/heads/release")),
+		/credential-free, and fixed to refs\/heads\/main/u,
 	);
 });
 
@@ -74,10 +99,10 @@ test("does not expose the GitHub token to Windows repository tests", () => {
 	assert.throws(() => verifyReleaseWorkflowPolicy(wrongStepToken), /scope GH_TOKEN/u);
 });
 
-test("requires a commit-pinned credential-free Windows checkout", () => {
+test("requires a commit-pinned, credential-free Windows checkout fixed to main", () => {
 	assert.throws(
 		() => verifyReleaseWorkflowPolicy(workflow.replace("persist-credentials: false", "persist-credentials: true")),
-		/windows-runtime checkout must be commit-pinned with persisted credentials disabled/u,
+		/windows-runtime checkout must be commit-pinned, credential-free, and fixed to refs\/heads\/main/u,
 	);
 });
 
@@ -252,14 +277,78 @@ test("keeps repository permissions read-only by default and requires source bind
 	);
 });
 
-test("keeps public-source verification independent of repository secrets", () => {
-	const withLegacySourceToken = workflow.replace(
-		"          GH_TOKEN: ${{ github.token }}",
-		"          GH_TOKEN: ${{ github.token }}\n          MAGENTA_SOURCE_READ_TOKEN: ${{ secrets.MAGENTA_SOURCE_READ_TOKEN }}",
+test("scopes private-source verification to a dedicated environment and scrubs the read token", () => {
+	assert.throws(
+		() => verifyReleaseWorkflowPolicy(workflow.replace("      name: source-verification", "      name: cli-release")),
+		/windows-runtime must use the dedicated source-verification environment/u,
 	);
 	assert.throws(
-		() => verifyReleaseWorkflowPolicy(withLegacySourceToken),
-		/anonymous public-source verification/u,
+		() => verifyReleaseWorkflowPolicy(workflow.replaceAll("      name: source-verification", "      name: cli-release")),
+		/windows-runtime must use the dedicated source-verification environment/u,
+	);
+	assert.throws(
+		() => verifyReleaseWorkflowPolicy(workflow.replace("MAGENTA_SOURCE_READ_TOKEN: ${{ secrets.MAGENTA_SOURCE_READ_TOKEN }}", "MAGENTA_SOURCE_READ_TOKEN: ${{ secrets.OTHER_TOKEN }}")),
+		/inject MAGENTA_SOURCE_READ_TOKEN exactly once/u,
+	);
+	assert.throws(
+		() =>
+			verifyReleaseWorkflowPolicy(
+				workflow.replace(
+					"      - name: Test verifier and public installation entrypoints\n        shell: pwsh",
+					"      - name: Test verifier and public installation entrypoints\n        shell: pwsh\n        env:\n          MAGENTA_SOURCE_READ_TOKEN: ${{ secrets.MAGENTA_SOURCE_READ_TOKEN }}",
+				),
+			),
+		/inject MAGENTA_SOURCE_READ_TOKEN exactly once/u,
+	);
+	assert.throws(
+		() =>
+			verifyReleaseWorkflowPolicy(
+				replaceLast(
+					workflow,
+					"      ALLOW_DRAFT: ${{ inputs.allow_draft }}",
+					"      ALLOW_DRAFT: ${{ inputs.allow_draft }}\n      MAGENTA_SOURCE_READ_TOKEN: ${{ secrets.MAGENTA_SOURCE_READ_TOKEN }}",
+				),
+			),
+		/inject MAGENTA_SOURCE_READ_TOKEN exactly once/u,
+	);
+	assert.throws(
+		() =>
+			verifyReleaseWorkflowPolicy(
+				workflow.replace(
+					"permissions:\n  contents: read",
+					"env:\n  LEAKED_SOURCE_TOKEN: ${{ secrets.MAGENTA_SOURCE_READ_TOKEN }}\n\npermissions:\n  contents: read",
+				),
+			),
+		/inject the source-read token only in the two native verification steps/u,
+	);
+	assert.throws(
+		() => verifyReleaseWorkflowPolicy(workflow.replace("Remove-Item Env:MAGENTA_SOURCE_READ_TOKEN -ErrorAction SilentlyContinue", "Write-Output 'token retained'")),
+		/scrub the read token/u,
+	);
+	assert.throws(
+		() => verifyReleaseWorkflowPolicy(workflow.replace("trap 'unset GH_TOKEN GITHUB_TOKEN MAGENTA_SOURCE_READ_TOKEN' EXIT", "trap 'unset GH_TOKEN GITHUB_TOKEN' EXIT")),
+		/scrub them before payload inspection/u,
+	);
+	assert.throws(
+		() =>
+			verifyReleaseWorkflowPolicy(
+				workflow.replace(
+					"throw \"MAGENTA_SOURCE_READ_TOKEN is required for private source verification\"",
+					"Write-Output \"continuing without MAGENTA_SOURCE_READ_TOKEN\"",
+				),
+			),
+		/windows-runtime must fail closed before work begins/u,
+	);
+	assert.throws(
+		() =>
+			verifyReleaseWorkflowPolicy(
+				replaceLast(
+					workflow,
+					'if [ -z "${MAGENTA_SOURCE_READ_TOKEN:-}" ]; then',
+					"if false; then",
+				),
+			),
+		/macos-runtime must scope release and source-read tokens/u,
 	);
 });
 

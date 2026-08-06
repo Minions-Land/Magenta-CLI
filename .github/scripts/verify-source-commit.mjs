@@ -20,6 +20,8 @@ const MAX_TAG_DEPTH = 8;
 const LEGACY_SOURCE_COMMIT_TAGS = new Set(["v0.0.27", "v0.0.29"]);
 
 export const SOURCE_REPOSITORY = "Minions-Land/Magenta";
+export const SOURCE_READ_TOKEN_ENV = "MAGENTA_SOURCE_READ_TOKEN";
+const SOURCE_MAIN_REF = "main";
 
 function isObject(value) {
 	return value !== null && typeof value === "object" && !Array.isArray(value);
@@ -233,9 +235,9 @@ function assertAnnotatedTag(tagObject, expectedTag, expectedSha, { root }) {
 
 /**
  * Prove that SOURCE_COMMIT is the commit peeled from the exact annotated tag.
- * The fixed source repository is public, so verification is anonymous unless
- * the caller explicitly supplies a token. No downloaded release code is
- * executed in this path.
+ * The source repository may be private. A workflow can provide a narrowly
+ * scoped read token through SOURCE_READ_TOKEN_ENV; no token is logged and no
+ * downloaded release code is executed in this path.
  */
 export async function verifySourceCommitBinding({
 	fetchImpl = fetch,
@@ -246,6 +248,7 @@ export async function verifySourceCommitBinding({
 	requestTimeoutMs = REQUEST_TIMEOUT_MS,
 	sleepImpl = sleep,
 	token,
+	requireMainHistory = false,
 }) {
 	parseReleaseTag(releaseTag);
 	assertRepository(repository);
@@ -282,7 +285,26 @@ export async function verifySourceCommitBinding({
 	if (peeledCommit !== sourceCommit) {
 		throw new Error("SOURCE_COMMIT does not match the commit peeled from the source release tag.");
 	}
-	return { releaseTag, sourceCommit, peeledCommit, status: "verified" };
+	let mainStatus;
+	if (requireMainHistory) {
+		const comparison = await fetchJson(
+			fetchImpl,
+			`${root}/compare/${peeledCommit}...${SOURCE_MAIN_REF}`,
+			token,
+			retryState,
+		);
+		if (!isObject(comparison) || !["ahead", "identical"].includes(comparison.status)) {
+			throw new Error("Source repository commit is not on the main branch history.");
+		}
+		mainStatus = comparison.status;
+	}
+	return {
+		releaseTag,
+		sourceCommit,
+		peeledCommit,
+		...(mainStatus ? { mainStatus } : {}),
+		status: "verified",
+	};
 }
 
 function parseArguments(args) {
@@ -296,28 +318,36 @@ function parseArguments(args) {
 		values.set(flag, value);
 	}
 	for (const flag of values.keys()) {
-		if (!["--release-dir", "--release-tag", "--repository"].includes(flag)) {
+		if (!["--release-dir", "--release-tag", "--repository", "--require-main"].includes(flag)) {
 			throw new Error(`Unknown argument: ${flag}`);
 		}
 	}
 	for (const flag of ["--release-dir", "--release-tag", "--repository"]) {
 		if (!values.get(flag)) throw new Error(`${flag} is required.`);
 	}
+	if (values.has("--require-main") && values.get("--require-main") !== "true") {
+		throw new Error("--require-main must be true");
+	}
 	return {
 		releaseDir: values.get("--release-dir"),
 		releaseTag: values.get("--release-tag"),
 		repository: values.get("--repository"),
+		requireMainHistory: true,
 	};
 }
 
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+	const sourceReadToken = process.env[SOURCE_READ_TOKEN_ENV];
 	try {
 		const options = parseArguments(process.argv.slice(2));
-		const result = await verifySourceCommitBinding(options);
+		const result = await verifySourceCommitBinding({ ...options, token: sourceReadToken });
 		process.stdout.write(`source_tag=${result.releaseTag}\nsource_commit=${result.sourceCommit}\n`);
+		process.stdout.write(`source_main=${result.mainStatus}\n`);
 		process.stdout.write(`source_binding=${result.status}\n`);
 	} catch (error) {
 		process.stderr.write(`Source commit verification failed: ${error.message}\n`);
 		process.exitCode = 1;
+	} finally {
+		delete process.env[SOURCE_READ_TOKEN_ENV];
 	}
 }

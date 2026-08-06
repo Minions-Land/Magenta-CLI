@@ -174,7 +174,7 @@ magenta --update
 
 ## ✨ Features
 
-- ✅ No GitHub Token required, anonymous downloads
+- ✅ No GitHub Token required for public downloads and updates
 - ✅ Precompiled binaries; no Node.js or package manager required
 - ✅ Built-in auto-update
 - ✅ 校验和、事务安装、故障回滚和版本化安装器
@@ -190,15 +190,19 @@ magenta --update
 ## 🔐 Release verification (maintainers)
 
 The `verify-release` workflow checks releases using the current source-bound
-provenance contract before it runs any downloaded native payload. The fixed
-`Minions-Land/Magenta` source repository is public, so the source check uses the
-anonymous GitHub API and needs no cross-repository secret. The verifier peels
-the exact annotated tag and compares its commit with the release
-`SOURCE_COMMIT`; an unavailable source API, lightweight tag, unexpected
-redirect, or mismatch fails closed. Release download tokens are removed before
-installer or native-runtime execution. The two native macOS jobs verify the
-exact nine-asset set, GitHub and manifest SHA-256 digests, binary architecture,
-reported version, CLI startup, materialized helpers, and clipboard loading.
+provenance contract before it runs any downloaded native payload. The
+`Minions-Land/Magenta` source repository is private, so the Windows and macOS
+verification jobs use the dedicated `source-verification` environment and its
+fine-grained `MAGENTA_SOURCE_READ_TOKEN` (Metadata and Contents read access only
+on that repository). The token is used only for the exact annotated source-tag
+and source-main-ancestry API requests and is removed before installer or
+native-runtime execution; a
+missing, unavailable, lightweight, redirected, or mismatched source response
+fails closed. Release download tokens are scoped separately. The two native
+macOS jobs verify the exact nine-asset set, GitHub and manifest SHA-256 digests,
+binary architecture, reported version, CLI startup, materialized helpers, and
+clipboard loading. Public users can inspect the `SOURCE_COMMIT` receipt and
+asset checksums, but anonymous source-tag verification is no longer available.
 Apple Developer ID signing and notarization are intentionally outside the
 current release contract.
 

@@ -55,7 +55,7 @@ test("parses strict release tags and gates the current contract from v0.0.30", (
 	assert.throws(() => parseReleaseTag("v0.01.0"), /exact/u);
 });
 
-test("peels an annotated source tag anonymously and matches SOURCE_COMMIT", async () => {
+test("peels an annotated source tag without a token when the source API allows it", async () => {
 	const root = fixture();
 	const seen = [];
 	try {
@@ -120,6 +120,70 @@ test("uses an optional source token only when explicitly supplied", async () => 
 		for (const request of seen) {
 			assert.equal(request.options.headers.Authorization, "Bearer read-only-test-token");
 		}
+	} finally {
+		rmSync(root, { force: true, recursive: true });
+	}
+});
+
+test("can require the peeled commit to be on the private source main history", async () => {
+	const root = fixture();
+	const seen = [];
+	try {
+		const result = await verifySourceCommitBinding({
+			fetchImpl: routedFetch(
+				[
+					{
+						suffix: `/git/ref/tags/${TAG}`,
+						value: { ref: `refs/tags/${TAG}`, object: { sha: TAG_OBJECT, type: "tag" } },
+					},
+					{
+						suffix: `/git/tags/${TAG_OBJECT}`,
+						value: { sha: TAG_OBJECT, tag: TAG, object: { sha: COMMIT, type: "commit" } },
+					},
+					{
+						suffix: `/compare/${COMMIT}...main`,
+						value: { status: "ahead" },
+					},
+				],
+				seen,
+			),
+			releaseDir: root,
+			releaseTag: TAG,
+			repository: SOURCE_REPOSITORY,
+			requireMainHistory: true,
+			token: "read-only-test-token",
+		});
+		assert.equal(result.mainStatus, "ahead");
+		assert.equal(seen.length, 3);
+	} finally {
+		rmSync(root, { force: true, recursive: true });
+	}
+});
+
+test("fails closed when the peeled commit is not on main", async () => {
+	const root = fixture();
+	try {
+		await assert.rejects(
+			() =>
+				verifySourceCommitBinding({
+					fetchImpl: routedFetch([
+						{
+							suffix: `/git/ref/tags/${TAG}`,
+							value: { ref: `refs/tags/${TAG}`, object: { sha: TAG_OBJECT, type: "tag" } },
+						},
+						{
+							suffix: `/git/tags/${TAG_OBJECT}`,
+							value: { sha: TAG_OBJECT, tag: TAG, object: { sha: COMMIT, type: "commit" } },
+						},
+						{ suffix: `/compare/${COMMIT}...main`, value: { status: "diverged" } },
+					]),
+					releaseDir: root,
+					releaseTag: TAG,
+					repository: SOURCE_REPOSITORY,
+					requireMainHistory: true,
+				}),
+			/ not on the main branch history/u,
+		);
 	} finally {
 		rmSync(root, { force: true, recursive: true });
 	}

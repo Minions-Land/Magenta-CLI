@@ -628,7 +628,9 @@ test("extracts only the exact clipboard archive member into a regular file", {
 
 test("refuses native verification while API tokens remain", () => {
 	const originalToken = process.env.GH_TOKEN;
+	const originalSourceToken = process.env.MAGENTA_SOURCE_READ_TOKEN;
 	process.env.GH_TOKEN = "must-not-reach-native-code";
+	process.env.MAGENTA_SOURCE_READ_TOKEN = "must-not-reach-native-code";
 	try {
 		assert.throws(
 			() => verifyDownloadedMacosRelease({ releaseDir: "/tmp/unused", runCommand: () => assert.fail() }),
@@ -637,5 +639,7 @@ test("refuses native verification while API tokens remain", () => {
 	} finally {
 		if (originalToken === undefined) delete process.env.GH_TOKEN;
 		else process.env.GH_TOKEN = originalToken;
+		if (originalSourceToken === undefined) delete process.env.MAGENTA_SOURCE_READ_TOKEN;
+		else process.env.MAGENTA_SOURCE_READ_TOKEN = originalSourceToken;
 	}
 });
