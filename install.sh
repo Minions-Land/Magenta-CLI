@@ -52,19 +52,207 @@ fi
 
 asset_digests() {
   local wanted="$1"
-  # GitHub's JSON response is pretty-printed with release asset objects at four
-  # spaces and their direct fields at six spaces. Nested uploader objects are
-  # deliberately ignored, so a similarly named nested field cannot bind the
-  # digest to the wrong asset.
+  # GitHub may serialize the same response as compact or pretty-printed JSON.
+  # Parse just the root assets array with POSIX awk so fresh macOS/Linux hosts
+  # do not need jq, Python, or Node. Only direct fields of each asset object are
+  # considered; nested uploader fields cannot bind a digest to the wrong name.
   awk -v wanted="$wanted" '
-    /^    \{/ { in_asset=1; name=""; digest=""; next }
-    in_asset && /^      "name"[[:space:]]*:/ {
-      line=$0; sub(/^      "name"[[:space:]]*:[[:space:]]*"/, "", line); sub(/".*$/, "", line); name=line; next
+    function skip_space(text, position,    limit, character) {
+      limit = length(text)
+      while (position <= limit) {
+        character = substr(text, position, 1)
+        if (character !~ /[[:space:]]/) break
+        position++
+      }
+      return position
     }
-    in_asset && /^      "digest"[[:space:]]*:/ {
-      line=$0; sub(/^      "digest"[[:space:]]*:[[:space:]]*"sha256:/, "", line); sub(/".*$/, "", line); digest=line; next
+
+    function parse_string(text, start,    limit, position, character, value, escaped) {
+      JSON_STRING_OK = 0
+      JSON_STRING_END = 0
+      JSON_STRING_VALUE = ""
+      JSON_STRING_ESCAPED = 0
+      limit = length(text)
+      if (substr(text, start, 1) != "\"") return
+      value = ""
+      escaped = 0
+      for (position = start + 1; position <= limit; position++) {
+        character = substr(text, position, 1)
+        if (character == "\\") {
+          escaped = 1
+          position++
+          if (position > limit) return
+          value = value "\\" substr(text, position, 1)
+        } else if (character == "\"") {
+          JSON_STRING_OK = 1
+          JSON_STRING_END = position
+          JSON_STRING_VALUE = value
+          JSON_STRING_ESCAPED = escaped
+          return
+        } else {
+          value = value character
+        }
+      }
     }
-    in_asset && /^    \}/ { if (name == wanted && digest != "") print digest; in_asset=0 }
+
+    function object_end(text, start,    limit, position, character, depth) {
+      limit = length(text)
+      depth = 0
+      for (position = start; position <= limit; position++) {
+        character = substr(text, position, 1)
+        if (character == "\"") {
+          parse_string(text, position)
+          if (!JSON_STRING_OK) return 0
+          position = JSON_STRING_END
+        } else if (character == "{") {
+          depth++
+        } else if (character == "}") {
+          depth--
+          if (depth == 0) return position
+          if (depth < 0) return 0
+        }
+      }
+      return 0
+    }
+
+    function emit_asset(object,    limit, position, character, object_depth, array_depth, key, key_escaped, next_position, value, value_escaped, name, name_count, digest, digest_count) {
+      limit = length(object)
+      object_depth = 0
+      array_depth = 0
+      name = ""
+      digest = ""
+      name_count = 0
+      digest_count = 0
+      for (position = 1; position <= limit; position++) {
+        character = substr(object, position, 1)
+        if (character == "\"") {
+          parse_string(object, position)
+          if (!JSON_STRING_OK) return 0
+          key = JSON_STRING_VALUE
+          key_escaped = JSON_STRING_ESCAPED
+          next_position = skip_space(object, JSON_STRING_END + 1)
+          if (object_depth == 1 && array_depth == 0 && !key_escaped && substr(object, next_position, 1) == ":") {
+            next_position = skip_space(object, next_position + 1)
+            if (substr(object, next_position, 1) == "\"") {
+              parse_string(object, next_position)
+              if (!JSON_STRING_OK) return 0
+              value = JSON_STRING_VALUE
+              value_escaped = JSON_STRING_ESCAPED
+              if (!value_escaped && key == "name") {
+                name = value
+                name_count++
+              } else if (!value_escaped && key == "digest") {
+                digest = value
+                digest_count++
+              }
+              position = JSON_STRING_END
+            } else {
+              position = next_position - 1
+            }
+          } else {
+            position = JSON_STRING_END
+          }
+        } else if (character == "{") {
+          object_depth++
+        } else if (character == "}") {
+          object_depth--
+          if (object_depth < 0) return 0
+        } else if (character == "[") {
+          array_depth++
+        } else if (character == "]") {
+          array_depth--
+          if (array_depth < 0) return 0
+        }
+      }
+      if (object_depth != 0 || array_depth != 0) return 0
+      if (name_count == 1 && digest_count == 1 && name == wanted) {
+        sub(/^sha256:/, "", digest)
+        print digest
+      }
+      return 1
+    }
+
+    function parse_assets(text, start,    limit, position, character, finish, object) {
+      limit = length(text)
+      position = skip_space(text, start + 1)
+      if (substr(text, position, 1) == "]") {
+        ASSETS_END = position
+        return 1
+      }
+      while (position <= limit) {
+        if (substr(text, position, 1) != "{") return 0
+        finish = object_end(text, position)
+        if (finish == 0) return 0
+        object = substr(text, position, finish - position + 1)
+        if (!emit_asset(object)) return 0
+        position = skip_space(text, finish + 1)
+        character = substr(text, position, 1)
+        if (character == ",") {
+          position = skip_space(text, position + 1)
+        } else if (character == "]") {
+          ASSETS_END = position
+          return 1
+        } else {
+          return 0
+        }
+      }
+      return 0
+    }
+
+    { json = json $0 "\n" }
+
+    END {
+      limit = length(json)
+      object_depth = 0
+      array_depth = 0
+      assets_count = 0
+      failed = 0
+      for (position = 1; position <= limit; position++) {
+        character = substr(json, position, 1)
+        if (character == "\"") {
+          parse_string(json, position)
+          if (!JSON_STRING_OK) {
+            failed = 1
+            break
+          }
+          key = JSON_STRING_VALUE
+          key_escaped = JSON_STRING_ESCAPED
+          next_position = skip_space(json, JSON_STRING_END + 1)
+          if (object_depth == 1 && array_depth == 0 && !key_escaped && key == "assets" && substr(json, next_position, 1) == ":") {
+            next_position = skip_space(json, next_position + 1)
+            if (substr(json, next_position, 1) != "[") {
+              failed = 1
+              break
+            }
+            assets_count++
+            if (!parse_assets(json, next_position)) {
+              failed = 1
+              break
+            }
+            position = ASSETS_END
+          } else {
+            position = JSON_STRING_END
+          }
+        } else if (character == "{") {
+          object_depth++
+        } else if (character == "}") {
+          object_depth--
+          if (object_depth < 0) {
+            failed = 1
+            break
+          }
+        } else if (character == "[") {
+          array_depth++
+        } else if (character == "]") {
+          array_depth--
+          if (array_depth < 0) {
+            failed = 1
+            break
+          }
+        }
+      }
+      if (failed || object_depth != 0 || array_depth != 0 || assets_count != 1) exit 2
+    }
   ' "$METADATA_PATH"
 }
 
