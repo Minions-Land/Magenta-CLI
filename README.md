@@ -162,9 +162,17 @@ fi
 
 ## 🔄 Update
 
+Preferred command:
+
 ```bash
-magenta --update
+magenta update self
 ```
+
+`magenta --update` remains a compatibility alias. On the first interactive self-update, Magenta asks whether large release payloads should come directly from GitHub or through the documented China mirror, then stores the choice globally in `~/.magenta/agent/settings.json`. A TTY shows the asset name, received/total bytes, percentage, and retry attempt; CI and other non-TTY runs stay quiet and default to GitHub.
+
+Set `MAGENTA_GITHUB_MIRROR=https://ghfast.top` to override the payload source for one process or to accelerate future downloads. The GitHub Release API metadata, `SOURCE_COMMIT`, and checksum verification remain the integrity boundary and are not moved behind the mirror.
+
+Update failed?
 
 更新失败？（"Could not fetch latest release" 等）常见原因：
 > - **下载慢/受限**：设置镜像后重试 `--update`，或用一键安装脚本重装。bash: `export MAGENTA_GITHUB_MIRROR=https://ghfast.top`；PowerShell: `$env:MAGENTA_GITHUB_MIRROR = "https://ghfast.top"`
