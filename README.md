@@ -1,26 +1,35 @@
 # Magenta CLI
 
-Magenta is an AI coding and research agent.
+<p align="center">
+  <strong>Verified standalone binaries for Magenta</strong><br>
+  <sub>无需 Node.js 或包管理器即可运行的编程与科研 Agent CLI。</sub>
+</p>
 
-## 🚀 Installation
+<p align="center">
+  <a href="https://github.com/Minions-Land/Magenta-CLI/releases/latest"><img alt="Latest release" src="https://img.shields.io/github/v/release/Minions-Land/Magenta-CLI?label=latest%20release"></a>
+  <a href="https://github.com/Minions-Land/Magenta-CLI/releases"><img alt="Platforms" src="https://img.shields.io/badge/platforms-macOS%20%7C%20Linux%20%7C%20Windows-0969da"></a>
+  <a href="https://github.com/Minions-Land/Magenta-CLI/actions"><img alt="Release workflows" src="https://img.shields.io/github/actions/workflow/status/Minions-Land/Magenta-CLI/release.yml?label=release%20verification"></a>
+  <a href="https://github.com/Minions-Land/Magenta"><img alt="Source repository" src="https://img.shields.io/badge/source-Magenta-8250df"></a>
+</p>
 
-> **受限或慢速网络（如中国大陆）？** 先设置镜像加速，再运行安装命令：
->
-> macOS / Linux (bash)：
-> ```bash
-> export MAGENTA_GITHUB_MIRROR=https://ghfast.top
-> ```
-> Windows (PowerShell)：
-> ```powershell
-> $env:MAGENTA_GITHUB_MIRROR = "https://ghfast.top"
-> ```
-> 镜像加速只作用于二进制/资源包下载；版本解析和校验根仍直连 GitHub。若 GitHub 元数据本身不可达（而非仅 payload 下载慢），需先恢复直连访问。
+<p align="center">
+  <a href="#installation">Installation</a> ·
+  <a href="#update">Update</a> ·
+  <a href="#verification-model">Verification</a> ·
+  <a href="#supported-platforms">Platforms</a> ·
+  <a href="#troubleshooting">Troubleshooting</a>
+</p>
 
-### Installation by platform
+Magenta-CLI is the public distribution repository for [Magenta](https://github.com/Minions-Land/Magenta). Each release contains a platform executable, the matching runtime resources, and a `SHA256SUMS` manifest. The source repository and this distribution repository have separate responsibilities: Magenta builds the product; Magenta-CLI publishes and verifies the installable payload.
 
-**macOS / Linux (`v0.1.0+`):**
+> [!IMPORTANT]
+> Install the executable **and** `magenta-resources-universal.tar.gz` from the same release. The installer binds both to one exact tag and verifies `SHA256SUMS` before activation.
 
-> If GitHub's latest Release is still `v0.0.29`, the bootstrap below intentionally refuses to run because that Release predates the version-bound Unix installer. Use the fixed `v0.0.29` transition procedure below. Starting with `v0.1.0`, use this bootstrap.
+## Installation
+
+### macOS and Linux
+
+The release-bound bootstrap resolves one exact release tag, verifies the installer digest, and then runs the version-matched installer:
 
 ```bash
 bootstrap="$(mktemp)"
@@ -29,12 +38,28 @@ bash "$bootstrap"
 rm -f "$bootstrap"
 ```
 
-**Windows x64 (PowerShell 5.1 or later):**
+The default user installation is:
+
+```text
+~/.local/lib/magenta/<managed release>
+~/.local/bin/magenta -> <managed release>/magenta
+```
+
+Start Magenta from the project you want to work on:
+
+```bash
+cd /path/to/project
+magenta
+```
+
+### Windows x64
+
+PowerShell users can download the release-bound installer and pass the exact tag selected by the GitHub API:
 
 ```powershell
 $ErrorActionPreference = "Stop"
 $repo = "Minions-Land/Magenta-CLI"
-$release = Invoke-RestMethod "https://api.github.com/repos/Minions-Land/Magenta-CLI/releases/latest"
+$release = Invoke-RestMethod "https://api.github.com/repos/$repo/releases/latest"
 $tag = [string]$release.tag_name
 if ($tag -cnotmatch '^v(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$') { throw "Invalid release tag: $tag" }
 $assets = @($release.assets | Where-Object { $_.name -ceq "install.ps1" })
@@ -47,100 +72,68 @@ $installer = Join-Path ([IO.Path]::GetTempPath()) ("magenta-install-" + [guid]::
 try {
   Invoke-WebRequest -UseBasicParsing "https://github.com/$repo/releases/download/$tag/install.ps1" -OutFile $installer
   if ((Get-Item -LiteralPath $installer).Length -ne [int64]$asset.size) { throw "Installer size mismatch" }
-  if ((Get-FileHash -LiteralPath $installer -Algorithm SHA256).Hash.ToLowerInvariant() -cne $expectedHash) {
-    throw "Installer digest mismatch"
-  }
+  if ((Get-FileHash -LiteralPath $installer -Algorithm SHA256).Hash.ToLowerInvariant() -cne $expectedHash) { throw "Installer digest mismatch" }
   & $installer -Version $tag
 } finally {
   Remove-Item -LiteralPath $installer -Force -ErrorAction SilentlyContinue
 }
 ```
 
-Unix 下载的是仓库内的最小 bootstrap，而不是执行未绑定版本的安装器 URL。bootstrap 只负责从 GitHub API 解析唯一 latest tag、校验该 tag 的 installer API SHA-256 digest，并把精确 tag 传给正式 installer。Windows 命令执行相同的 tag、唯一资产、大小和 digest 绑定。正式 installer 会自动检测平台架构，下载二进制、资源包和校验清单，并在校验或 staged startup 失败时中止。
+The signed release workflow performs the authoritative installer size and SHA-256 checks before publication. The PowerShell installer stages the candidate, verifies the matching resources, starts it, and only then replaces the active entry point.
 
-仓库根目录的 `install.sh` 只是兼容 bootstrap：它先从 GitHub API 解析唯一的 latest tag，校验该 tag 的 `install.sh` API SHA-256 digest，再执行临时文件。若目标 Release 尚未发布 `install.sh`（例如旧的 v0.0.29），脚本会明确失败，不会回退执行未绑定的脚本。
+### Restricted or slow networks
 
-- **macOS / Linux (`v0.1.0+`)**：默认安装到 `~/.local/lib/magenta`，再原子更新 `~/.local/bin/magenta` 链接；安装、修复、旧布局迁移和卸载共用事务日志与回滚。下载产物在执行前必须通过 Release 元数据摘要和 `SHA256SUMS` 校验。
-- **Windows**：在用户目录中隔离 staging，校验并启动候选后再原子替换，失败时保留旧安装。
-- **受限网络**：`MAGENTA_GITHUB_MIRROR` 仅用于二进制和资源 payload；校验清单及版本解析仍直接访问 GitHub。
-
-当前 macOS Release 不要求 Apple Developer ID 签名或公证。发布验证仍会绑定精确资产集合、`SOURCE_COMMIT` 和源码 tag，并在 Apple Silicon 与 Intel runner 上检查架构和真实启动；这些校验不等同于 Apple 的开发者身份认证。首次运行若被 Gatekeeper 拦截，可在 Finder 中右键选择“打开”，或在“系统设置 > 隐私与安全性”中确认打开。
-
-<a id="unix-v0-0-29-manual-transition"></a>
-
-### Unix v0.0.29 manual transition
-
-`v0.0.29` 是唯一需要手工过渡的 Unix Release。下面的命令固定 tag 和已审查的清单摘要，只下载同一 Release 的二进制、资源包与 `SHA256SUMS`，不会下载或执行远端 shell。它只安装到全新的版本目录；若目录或 `~/.local/bin/magenta` 已存在，会在写入前退出。该过渡路径证明文件与已发布摘要一致，但不提供 Apple Developer ID 身份或公证保证。
+Use a payload mirror only when GitHub's large release assets are slow. The mirror does not replace the integrity boundary:
 
 ```bash
-set -eu
-umask 077
-
-tag="v0.0.29"
-case "$(uname -s):$(uname -m)" in
-  Darwin:arm64) asset="magenta-macos-arm64" ;;
-  Darwin:x86_64) asset="magenta-macos-x64" ;;
-  Linux:x86_64) asset="magenta-linux-x64" ;;
-  *) echo "Unsupported platform for Magenta v0.0.29" >&2; exit 1 ;;
-esac
-
-base="https://github.com/Minions-Land/Magenta-CLI/releases/download/$tag"
-manifest_sha256="f61d38f8d9c7838a77b9e79d3c33d322fc328cb22c713a304614797f5e986d21"
-install_dir="$HOME/.local/lib/magenta-$tag"
-entrypoint="$HOME/.local/bin/magenta"
-
-if [ -e "$install_dir" ] || [ -L "$install_dir" ] || [ -e "$entrypoint" ] || [ -L "$entrypoint" ]; then
-  echo "Refusing to overwrite an existing Magenta installation." >&2
-  exit 1
-fi
-
-download_dir="$(mktemp -d "${TMPDIR:-/tmp}/magenta-v0.0.29.XXXXXXXX")"
-cleanup() { rm -rf "$download_dir"; }
-trap cleanup EXIT HUP INT TERM
-cd "$download_dir"
-
-curl -fL "$base/$asset" -o "$asset"
-curl -fL "$base/magenta-resources-universal.tar.gz" -o magenta-resources-universal.tar.gz
-curl -fL "$base/SHA256SUMS" -o SHA256SUMS
-
-verify_checksums() {
-  if command -v sha256sum >/dev/null 2>&1; then
-    sha256sum -c "$1"
-  elif command -v shasum >/dev/null 2>&1; then
-    shasum -a 256 -c "$1"
-  else
-    echo "Neither sha256sum nor shasum is available." >&2
-    return 1
-  fi
-}
-
-printf '%s  %s\n' "$manifest_sha256" SHA256SUMS > SHA256SUMS.root
-verify_checksums SHA256SUMS.root
-awk -v binary="$asset" '
-  NF == 2 && $2 == binary && length($1) == 64 && $1 !~ /[^0-9a-f]/ { binary_count++; print }
-  NF == 2 && $2 == "magenta-resources-universal.tar.gz" && length($1) == 64 && $1 !~ /[^0-9a-f]/ { resource_count++; print }
-  END { if (binary_count != 1 || resource_count != 1) exit 1 }
-' SHA256SUMS > SHA256SUMS.selected
-verify_checksums SHA256SUMS.selected
-
-mkdir -p "$HOME/.local/lib" "$HOME/.local/bin"
-mkdir "$install_dir"
-tar -xzf magenta-resources-universal.tar.gz -C "$install_dir"
-cp "$asset" "$install_dir/magenta"
-chmod 755 "$install_dir/magenta"
-version="$("$install_dir/magenta" --version)"
-test "$version" = "0.0.29"
-"$install_dir/magenta" --help >/dev/null
-ln -s "$install_dir/magenta" "$entrypoint"
-
-printf 'Installed Magenta %s at %s\n' "$version" "$entrypoint"
+export MAGENTA_GITHUB_MIRROR=https://ghfast.top
+# Then run the normal bootstrap or: magenta update self
 ```
 
-该过渡路径不会覆盖旧安装。若已有 `~/.local/bin/magenta`，先决定要保留、迁移还是手工移除它；不要把上述拒绝检查改成强制覆盖。`v0.1.0+` 发布后，Unix 用户应回到上方的 release-bound bootstrap。
+```powershell
+$env:MAGENTA_GITHUB_MIRROR = "https://ghfast.top"
+```
 
-### Manual download
+The mirror is used for the executable and resource archive only. Release metadata, the exact version, `SOURCE_COMMIT`, and `SHA256SUMS` remain tied to GitHub. If `api.github.com` is unreachable, fix that network path first; a payload mirror cannot provide trustworthy version resolution by itself.
 
-从 [Releases 页面](https://github.com/Minions-Land/Magenta-CLI/releases) 选择一个精确 tag，并从同一个 tag 下载平台二进制、`magenta-resources-universal.tar.gz` 和 `SHA256SUMS`。`SHA256SUMS` 还覆盖同一 Release 的其他 payload，因此手工下载时只校验已下载的两项：
+## Update
+
+Preferred command:
+
+```bash
+magenta update self
+```
+
+`magenta --update` remains a compatibility alias. A TTY shows the asset, progress, and retry attempt; non-TTY runs stay quiet. The updater preserves the managed installation layout and user data such as settings, credentials, Sessions, and messages.
+
+## How a release is assembled
+
+```mermaid
+flowchart LR
+    Source["Magenta source tag"] --> Build["Clean multi-platform build"]
+    Build --> Assets["Executable + resources"]
+    Assets --> Checksums["SHA256SUMS + SOURCE_COMMIT"]
+    Checksums --> Verify["Release and installer checks"]
+    Verify --> Publish["Magenta-CLI release"]
+```
+
+A release is considered usable only after the platform executable, resources archive, checksum manifest, and `SOURCE_COMMIT` receipt agree. A single binary without its matching resources is incomplete.
+
+## Verification model
+
+- The release workflow builds from an immutable Magenta source tag.
+- The exact nine-asset set is checked before publication.
+- The executable and resources are checked against `SHA256SUMS`.
+- Installers verify the candidate before changing the active entry point.
+- macOS and Linux startup checks exercise the packaged CLI; platform jobs also check architecture and materialized runtime helpers.
+- Public users can inspect `SOURCE_COMMIT` and the checksum manifest on every release.
+
+Apple Developer ID signing and notarization are outside the current release contract. On macOS, Gatekeeper may require Finder's **Open** action or an explicit confirmation in **Privacy & Security**.
+
+<details>
+<summary>Manual download and checksum verification</summary>
+
+Choose one exact tag and download the platform executable, resources archive, and manifest from that same tag:
 
 ```bash
 tag="<exact-release-tag>"
@@ -158,62 +151,30 @@ else
 fi
 ```
 
-单独下载一个二进制是不完整且不受支持的安装方式。
+This verifies files from one release; it does not install them or replace an existing entry point.
+</details>
 
-## 🔄 Update
+## Supported platforms
 
-Preferred command:
+| Platform | Asset |
+|---|---|
+| macOS Apple Silicon | `magenta-macos-arm64` |
+| macOS Intel | `magenta-macos-x64` |
+| Linux x64 | `magenta-linux-x64` |
+| Windows x64 | `magenta-windows-x64.exe` |
 
-```bash
-magenta update self
-```
+## Troubleshooting
 
-`magenta --update` remains a compatibility alias. On the first interactive self-update, Magenta asks whether large release payloads should come directly from GitHub or through the documented China mirror, then stores the choice globally in `~/.magenta/agent/settings.json`. A TTY shows the asset name, received/total bytes, percentage, and retry attempt; CI and other non-TTY runs stay quiet and default to GitHub.
+| Symptom | Check |
+|---|---|
+| `Could not fetch latest release` | Confirm access to `api.github.com`; payload mirrors do not proxy release metadata. |
+| Download is slow | Set `MAGENTA_GITHUB_MIRROR` for the payload and rerun the installer or `magenta update self`. |
+| HTTP 403 from GitHub API | Check the API rate-limit reset time; public releases do not require a token. |
+| `--update` is unavailable | Reinstall with the release-bound bootstrap; very old releases predate the current split-asset layout. |
+| Startup fails after a partial install | Re-run the installer for the exact release; it verifies and stages before activation. |
 
-Set `MAGENTA_GITHUB_MIRROR=https://ghfast.top` to override the payload source for one process or to accelerate future downloads. The GitHub Release API metadata, `SOURCE_COMMIT`, and checksum verification remain the integrity boundary and are not moved behind the mirror.
+For product behavior, HCP contracts, Tools, Hooks, Sessions, and development instructions, use the [Magenta source documentation](https://github.com/Minions-Land/Magenta#documentation).
 
-Update failed?
+## Maintainers
 
-更新失败？（"Could not fetch latest release" 等）常见原因：
-> - **下载慢/受限**：设置镜像后重试 `magenta update self`，或用一键安装脚本重装。bash: `export MAGENTA_GITHUB_MIRROR=https://ghfast.top`；PowerShell: `$env:MAGENTA_GITHUB_MIRROR = "https://ghfast.top"`
-> - **API 不可达**：版本元数据始终直连 api.github.com，镜像不会代理元数据；需先打通到 api.github.com 的网络。
-> - **API 限流**（HTTP 403，60 次/小时）：等待错误里的重置时间，或设置 `MAGENTA_GITHUB_TOKEN`（公开仓库无需特殊权限）
-> - **旧版本断层**：`v0.0.29` 及更早版本的内置 updater 只认识旧 helper 布局，无法通过 `--update` 升级到 `v0.1.0+`。新版本发布后请运行上方经过 tag、大小和摘要校验的安装器；它会迁移可证明属于 Magenta 的旧安装，并保留 `~/.magenta` 中的设置、凭据、消息和会话。
-
-## ✨ Features
-
-- ✅ No GitHub Token required for public downloads and updates
-- ✅ Precompiled binaries; no Node.js or package manager required
-- ✅ Built-in auto-update
-- ✅ 校验和、事务安装、故障回滚和版本化安装器
-- ✅ macOS 双架构原生启动、资源 helper 和 clipboard binding 验证
-- ✅ 可选 payload 镜像加速
-
-## 📦 Supported Platforms
-
-- macOS (Apple Silicon / Intel)
-- Linux (x64)
-- Windows (x64)
-
-## 🔐 Release verification (maintainers)
-
-The `verify-release` workflow checks releases using the current source-bound
-provenance contract before it runs any downloaded native payload. The
-`Minions-Land/Magenta` source repository is private, so the Windows and macOS
-verification jobs use the dedicated `source-verification` environment and its
-fine-grained `MAGENTA_SOURCE_READ_TOKEN` (Metadata and Contents read access only
-on that repository). The token is used only for the exact annotated source-tag
-and source-main-ancestry API requests and is removed before installer or
-native-runtime execution; a
-missing, unavailable, lightweight, redirected, or mismatched source response
-fails closed. Release download tokens are scoped separately. The two native
-macOS jobs verify the exact nine-asset set, GitHub and manifest SHA-256 digests,
-binary architecture, reported version, CLI startup, materialized helpers, and
-clipboard loading. Public users can inspect the `SOURCE_COMMIT` receipt and
-asset checksums, but anonymous source-tag verification is no longer available.
-Apple Developer ID signing and notarization are intentionally outside the
-current release contract.
-
-## 📖 Documentation
-
-- 受限网络：安装前设置镜像（bash: `export MAGENTA_GITHUB_MIRROR=https://ghfast.top`；PowerShell: `$env:MAGENTA_GITHUB_MIRROR = "https://ghfast.top"`）。镜像仅加速 payload，Release 元数据和校验根仍直连 GitHub。
+Release publication is tag-driven from the Magenta source repository. Read its [release guide](https://github.com/Minions-Land/Magenta/blob/main/docs/UPDATE_SETUP_GUIDE.md) before running release commands. Do not upload ad-hoc local binaries as a substitute for the verified workflow.
