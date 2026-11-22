@@ -1,9 +1,9 @@
 {
 	"app": "magenta-web-hosted",
-	"commit": "0a0ee14531a052087178fae820f904d071a6de31",
+	"commit": "a429b29f210a76c58e1d1259d8ac9e70c60626d5",
 	"sourceClean": true,
-	"bundle": "app.14c5c25deff6.js",
-	"bundleBytes": 883499,
+	"bundle": "app.18c444fe1bb5.js",
+	"bundleBytes": 931129,
 	"packages": [
 		{
 			"name": "@anthropic-ai/sdk",
@@ -48,11 +48,11 @@
 		"pi-ai provider adapters (MIT, from Pi)"
 	],
 	"files": {
-		"app.14c5c25deff6.js": "14c5c25deff6e1e88eb226290aea5c2b80086fbf40aaabefc783f6deaf30b405",
-		"app.af5b1cfceb23.css": "af5b1cfceb23a456c95b0cf8b4802cc6df7943f6732f28430d25df130e66e0e4",
+		"app.18c444fe1bb5.js": "18c444fe1bb5ff26124dca67f2cfee583c4768c4be93214c45628f16df936828",
+		"app.c1ad253746e8.css": "c1ad253746e8129b6e6a557505169408b25f3e7d8242c955c45372af0e8bd839",
 		"export-template.html": "d77804ccc4a5bfa60fbd6534fb0c6f7a93b4aad111cd21936fe88336c561be4e",
 		"favicon.svg": "becd087173b4fcb063b356d0989c8c79599f291cfcbac21b7ad12b643b7d6038",
-		"index.html": "b1565e1ee366aef5f6f8c343cf0769033b2ef7d0ca07792baf4f6bcd045ede90",
+		"index.html": "06902650c1b9dcddf51c3ab9c337cb0c708ca32d1a85f2d19c7d24d05be1f666",
 		"LICENSES.txt": "3f62fa02040a0fab34f2cf04d4032661548c76674dddbed1290b472aa02ffc68",
 		"mark-dark.svg": "09e94f5d1dc58fa7d090455eab04001119b2d0178175b011494eab6a6bc6af04",
 		"mark.svg": "7a1288e9b9cae4e12413973883a3c2a934f3dd9a7cac34e12cf165eaa055bf96",
