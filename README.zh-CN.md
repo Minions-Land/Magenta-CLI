@@ -53,7 +53,7 @@ Magenta 是一个终端编程 Agent。在项目目录中启动它，描述你想
 - **可审计的文件。** 可将对话导出为会话 JSONL（可在 CLI 中打开）或自包含的 HTML 文件，并可导入会话 JSONL。
 - **网页搜索** 优先使用提供商自带的搜索（OpenAI、Anthropic），否则可用你自己的 Tavily key。
 
-浏览器版无法访问你的电脑。订阅登录（ChatGPT 或 Claude 套餐）、读取和编辑项目及运行命令的工具、Package、记忆以及自动上下文压缩都需要 CLI：先[安装](#安装)，再运行 `magenta` 或 `magenta web`。
+浏览器版无法访问你的电脑。订阅登录（ChatGPT 套餐）、读取和编辑项目及运行命令的工具、Package、记忆以及自动上下文压缩都需要 CLI：先[安装](#安装)，再运行 `magenta`（`magenta web` 是由你本机提供的同一套界面，将随下一个版本发布）。
 
 ## 安装
 

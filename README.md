@@ -53,7 +53,7 @@ This repository publishes the installable releases. Every release contains the e
 - **Auditable files.** Export a chat as session JSONL (opens in the CLI) or as a self-contained HTML file, and import session JSONL.
 - **Web search** uses the provider's own search where it offers one (OpenAI, Anthropic), or Tavily with your own key.
 
-The browser app cannot touch your computer. Subscription sign-in (ChatGPT or Claude plans), the tools that read and edit your project and run commands, Packages, memory and automatic compaction need the CLI: [install it](#install), then run `magenta` or `magenta web`.
+The browser app cannot touch your computer. Subscription sign-in (ChatGPT plans), the tools that read and edit your project and run commands, Packages, memory and automatic compaction need the CLI: [install it](#install), then run `magenta` (`magenta web`, the same interface served by your own machine, arrives in the next release).
 
 ## Install
 
