@@ -1,0 +1,44 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <!--
+    The shared export runs in a sandboxed srcdoc frame, which inherits this
+    policy: 'unsafe-inline' scripts and styles are for the export's own inline
+    code (this page loads only viewer.js and site.css). Network access is limited
+    to the GitHub API and raw gist downloads; images only from data:/blob: URLs,
+    so a shared session cannot load trackers; forms cannot be submitted.
+  -->
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src data:; media-src data: blob:; connect-src https://api.github.com https://gist.githubusercontent.com; base-uri 'none'; form-action 'none'; object-src 'none'">
+  <meta name="referrer" content="no-referrer">
+  <title>Magenta session viewer</title>
+  <link rel="icon" type="image/svg+xml" href="../assets/magenta-mark-small.svg">
+  <link rel="stylesheet" href="../assets/site.css">
+  <script type="module" src="viewer.js"></script>
+</head>
+<body class="viewer">
+  <header class="viewer-bar">
+    <a class="brand" href="../">
+      <img src="../assets/magenta-mark-small.svg" alt="" width="22" height="22">
+      <span>Magenta</span>
+      <span class="brand-sub">session viewer</span>
+    </a>
+    <div id="share-info" class="share-info" hidden>
+      <p class="notice">
+        <strong>Shared by <a id="owner" rel="noopener noreferrer" target="_blank"></a>.</strong>
+        This content was shared by a user, not by Magenta, and is shown in an isolated frame without access to this site. Do not enter passwords or keys into it.
+      </p>
+      <p class="meta"><span id="file"></span> · <a id="gist-link" rel="noopener noreferrer" target="_blank">View on GitHub</a></p>
+    </div>
+  </header>
+  <main>
+    <section id="status" class="status" aria-live="polite">
+      <h1 id="status-title">Loading…</h1>
+      <p id="status-detail">This page needs JavaScript to fetch the shared session from GitHub.</p>
+      <p><a id="status-link" rel="noopener noreferrer" target="_blank" hidden></a></p>
+    </section>
+    <div id="stage" class="stage"></div>
+  </main>
+</body>
+</html>

@@ -1,0 +1,46 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'self'; img-src 'self'; base-uri 'none'; form-action 'none'">
+  <meta name="referrer" content="no-referrer">
+  <meta name="description" content="Magenta CLI: an AI coding agent for your terminal. Verified standalone binaries for macOS, Linux and Windows.">
+  <title>Magenta CLI</title>
+  <link rel="icon" type="image/svg+xml" href="assets/magenta-mark-small.svg">
+  <link rel="stylesheet" href="assets/site.css">
+</head>
+<body>
+  <div class="page">
+    <header class="hero">
+      <img class="only-light" src="assets/magenta-mark.svg" alt="Magenta" width="96">
+      <img class="only-dark" src="assets/magenta-mark-on-ink.svg" alt="Magenta" width="96">
+      <h1>Magenta CLI</h1>
+      <p>An AI coding agent for your terminal: it reads your project, edits files and runs commands, with the model provider you choose.</p>
+      <nav class="links">
+        <a href="https://github.com/Minions-Land/Magenta-CLI#install">Install guide</a>
+        <a href="https://github.com/Minions-Land/Magenta-CLI/releases">Releases</a>
+        <a href="https://github.com/Minions-Land/Magenta-CLI/issues">Issues</a>
+        <a href="https://github.com/Minions-Land/Magenta-CLI/blob/main/README.zh-CN.md">简体中文</a>
+      </nav>
+    </header>
+
+    <h2>Install on macOS or Linux</h2>
+    <pre><code>bootstrap="$(mktemp)"
+curl -fsSL https://raw.githubusercontent.com/Minions-Land/Magenta-CLI/main/install.sh -o "$bootstrap"
+bash "$bootstrap"
+rm -f "$bootstrap"</code></pre>
+    <p>The bootstrap resolves the latest release, checks the installer's digest, and installs the executable and its resources after verifying them against the release's <code>SHA256SUMS</code>. For Windows (PowerShell), networks in mainland China, and manual verification, follow the <a href="https://github.com/Minions-Land/Magenta-CLI#install">install guide</a>.</p>
+
+    <h2>First steps</h2>
+    <pre><code>cd /path/to/your/project
+magenta</code></pre>
+    <p>Inside Magenta, type <code>/login</code> to sign in or add an API key, <code>/api add &lt;name&gt; &lt;url&gt;</code> to use your own endpoint, and <code>/model</code> to pick a model. <code>magenta --help</code> lists every option.</p>
+
+    <h2>Shared sessions</h2>
+    <p>The <a href="session/">session viewer</a> shows a Magenta session export that someone shared as a GitHub gist. It loads the gist from GitHub in your browser and shows it in an isolated frame; the content comes from the person who shared it.</p>
+
+    <p class="footer">Magenta CLI distributes verified release binaries. Product source code is not published here.</p>
+  </div>
+</body>
+</html>

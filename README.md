@@ -1,35 +1,49 @@
-# Magenta CLI
+<p align="right"><strong>English</strong> · <a href="README.zh-CN.md">简体中文</a></p>
 
 <p align="center">
-  <strong>Verified standalone binaries for Magenta</strong><br>
-  <sub>无需 Node.js 或包管理器即可运行的编程与科研 Agent CLI。</sub>
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/assets/magenta-mark-on-ink.svg">
+    <img alt="Magenta" src="docs/assets/magenta-mark.svg" width="96">
+  </picture>
+</p>
+
+<h1 align="center">Magenta CLI</h1>
+
+<p align="center">
+  <strong>An AI coding agent for your terminal: it reads your project, edits files and runs commands, with the model provider you choose.</strong><br>
+  Verified standalone binaries for macOS, Linux and Windows. No Node.js or package manager required.
 </p>
 
 <p align="center">
-  <a href="https://github.com/Minions-Land/Magenta-CLI/releases/latest"><img alt="Latest release" src="https://img.shields.io/github/v/release/Minions-Land/Magenta-CLI?label=latest%20release"></a>
-  <a href="https://github.com/Minions-Land/Magenta-CLI/releases"><img alt="Platforms" src="https://img.shields.io/badge/platforms-macOS%20%7C%20Linux%20%7C%20Windows-0969da"></a>
-  <a href="https://github.com/Minions-Land/Magenta-CLI/actions"><img alt="Release workflows" src="https://img.shields.io/github/actions/workflow/status/Minions-Land/Magenta-CLI/release.yml?label=release%20verification"></a>
-  <a href="https://github.com/Minions-Land/Magenta"><img alt="Source repository" src="https://img.shields.io/badge/source-Magenta-8250df"></a>
+  <a href="https://github.com/Minions-Land/Magenta-CLI/releases/latest"><img alt="Latest release" src="https://img.shields.io/github/v/release/Minions-Land/Magenta-CLI?label=release&color=EC008C"></a>
+  <a href="#supported-platforms"><img alt="Platforms: macOS, Linux, Windows" src="https://img.shields.io/badge/platforms-macOS%20%7C%20Linux%20%7C%20Windows-555555"></a>
+  <a href="https://github.com/Minions-Land/Magenta-CLI/actions/workflows/ci.yml"><img alt="Distribution checks" src="https://github.com/Minions-Land/Magenta-CLI/actions/workflows/ci.yml/badge.svg"></a>
 </p>
 
 <p align="center">
-  <a href="#installation">Installation</a> ·
-  <a href="#update">Update</a> ·
-  <a href="#verification-model">Verification</a> ·
-  <a href="#supported-platforms">Platforms</a> ·
-  <a href="#troubleshooting">Troubleshooting</a>
+  <a href="#install">Install</a> ·
+  <a href="#quick-start">Quick start</a> ·
+  <a href="#features">Features</a> ·
+  <a href="#extend-magenta">Extend</a> ·
+  <a href="#update-and-uninstall">Update</a> ·
+  <a href="#troubleshooting">Troubleshooting</a> ·
+  <a href="#get-help">Help</a>
 </p>
 
-Magenta-CLI is the public distribution repository for [Magenta](https://github.com/Minions-Land/Magenta). Each release contains a platform executable, the matching runtime resources, and a `SHA256SUMS` manifest. The source repository and this distribution repository have separate responsibilities: Magenta builds the product; Magenta-CLI publishes and verifies the installable payload.
+## What is Magenta?
 
-> [!IMPORTANT]
-> Install the executable **and** `magenta-resources-universal.tar.gz` from the same release. The installer binds both to one exact tag and verifies `SHA256SUMS` before activation.
+Magenta is a terminal coding agent. You start it inside a project, describe what you want, and it works through the task with tools: it reads and searches files, edits and writes code, runs shell commands (also in the background), and can hand parts of the work to sub-agents. You stay in control of which model it uses, which tools it may call, and which project files it trusts.
 
-## Installation
+- **Bring your own model.** Sign in with a subscription, use an API key, or point Magenta at your own endpoint.
+- **Built for long tasks.** Sessions are saved per project and can be continued, resumed, forked and exported; long conversations are compacted automatically.
+- **Scriptable.** The same agent runs interactively, as a one-shot command, or behind a JSON/RPC interface.
+- **Extensible.** Harness Packages, MCP servers, extensions, skills and prompt templates add capabilities without rebuilding Magenta.
 
-### macOS and Linux
+This repository publishes the installable releases. Every release contains the executables, one runtime resources archive, a `SHA256SUMS` manifest and the installers; the installers verify everything before they activate a new version.
 
-The release-bound bootstrap resolves one exact release tag, verifies the installer digest, and then runs the version-matched installer:
+## Install
+
+### macOS / Linux (`v0.1.0+`)
 
 ```bash
 bootstrap="$(mktemp)"
@@ -38,28 +52,21 @@ bash "$bootstrap"
 rm -f "$bootstrap"
 ```
 
-The default user installation is:
+The bootstrap asks the GitHub API for the latest release tag, checks the digest of that release's `install.sh`, and runs it pinned to the tag. The installer downloads the executable for your platform and `magenta-resources-universal.tar.gz`, verifies both against `SHA256SUMS`, and installs to:
 
 ```text
-~/.local/lib/magenta/<managed release>
-~/.local/bin/magenta -> <managed release>/magenta
+~/.local/lib/magenta/        executable and resources
+~/.local/bin/magenta         command on your PATH
 ```
 
-Start Magenta from the project you want to work on:
+Make sure `~/.local/bin` is on your `PATH`. Set `MAGENTA_INSTALL_DIR` and `MAGENTA_BIN_DIR` before running the bootstrap to install elsewhere. To move to a specific version later, use [`magenta update --version`](#update-and-uninstall).
 
-```bash
-cd /path/to/project
-magenta
-```
-
-### Windows x64
-
-PowerShell users can download the release-bound installer and pass the exact tag selected by the GitHub API:
+### Windows x64 (PowerShell)
 
 ```powershell
 $ErrorActionPreference = "Stop"
 $repo = "Minions-Land/Magenta-CLI"
-$release = Invoke-RestMethod "https://api.github.com/repos/$repo/releases/latest"
+$release = Invoke-RestMethod "https://api.github.com/repos/Minions-Land/Magenta-CLI/releases/latest"
 $tag = [string]$release.tag_name
 if ($tag -cnotmatch '^v(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$') { throw "Invalid release tag: $tag" }
 $assets = @($release.assets | Where-Object { $_.name -ceq "install.ps1" })
@@ -79,61 +86,204 @@ try {
 }
 ```
 
-The signed release workflow performs the authoritative installer size and SHA-256 checks before publication. The PowerShell installer stages the candidate, verifies the matching resources, starts it, and only then replaces the active entry point.
+This installs to `%LOCALAPPDATA%\Magenta` and adds it to your user `PATH`; open a new terminal afterwards. To choose a directory without changing `PATH`, replace the `& $installer -Version $tag` line with `& $installer -Version $tag -InstallDir "D:\Tools\Magenta" -NoPath`.
 
-### Restricted or slow networks
+### Check the installation
 
-Use a payload mirror only when GitHub's large release assets are slow. The mirror does not replace the integrity boundary:
+```bash
+magenta --version
+```
+
+prints the installed version, for example `0.5.3`. `magenta --help` lists every option; it starts like this:
+
+```text
+Magenta - AI coding assistant with file, shell, and background work tools
+
+Usage:
+  magenta [options] [@files...] [messages...]
+
+Commands:
+  magenta install <source> [-l]     Install extension source and add to settings
+  magenta remove <source> [-l]      Remove extension source from settings
+  magenta uninstall <source> [-l]   Alias for remove
+  magenta update [source|self|magenta]   Update Magenta (use --all for Magenta and extensions,
+                                           --version <X.Y.Z> to pin, --rollback to restore the previous version)
+  magenta list                      List installed extensions from settings
+  magenta config                    Open TUI to enable/disable package resources
+  magenta relay <command>           Add, start, stop, inspect, or diagnose SSH mailbox relays
+  magenta hcp check <package-root>  Validate one local Harness Package
+  magenta <command> --help          Show help for install/remove/uninstall/update/list/relay/hcp
+```
+
+> [!NOTE]
+> macOS builds are not signed with an Apple Developer ID or notarized. If Gatekeeper blocks the first start, allow it in **System Settings → Privacy & Security**.
+
+### Supported platforms
+
+| Platform | Release asset |
+|---|---|
+| macOS, Apple Silicon | `magenta-macos-arm64` |
+| macOS, Intel | `magenta-macos-x64` |
+| Linux x64 | `magenta-linux-x64` |
+| Windows x64 | `magenta-windows-x64.exe` |
+
+Every platform also needs `magenta-resources-universal.tar.gz` from the same release; the installers handle this. To download and verify files by hand, see [Manual download](#manual-download).
+
+### Networks in mainland China
+
+Large downloads from GitHub can be slow. Set a payload mirror before installing or updating:
 
 ```bash
 export MAGENTA_GITHUB_MIRROR=https://ghfast.top
-# Then run the normal bootstrap or: magenta update self
 ```
 
 ```powershell
 $env:MAGENTA_GITHUB_MIRROR = "https://ghfast.top"
 ```
 
-The mirror is used for the executable and resource archive only. Release metadata, the exact version, `SOURCE_COMMIT`, and `SHA256SUMS` remain tied to GitHub. If `api.github.com` is unreachable, fix that network path first; a payload mirror cannot provide trustworthy version resolution by itself.
+The mirror is used only for the executable and the resources archive. Release metadata and the checksums still come directly from GitHub (`api.github.com`), so a mirror cannot substitute both a file and the checksum that verifies it; if `api.github.com` itself is unreachable, fix that network path first. Public mirrors come and go. Other prefixes that worked at the time of writing are `https://gh-proxy.com`, `https://ghproxy.net` and `https://gh.llkk.cc`. Add the `export` line to `~/.bashrc` or `~/.zshrc` so `magenta update self` uses it too.
 
-## Update
+## Quick start
 
-Preferred command:
+1. **Start Magenta in your project.**
+
+   ```bash
+   cd /path/to/your/project
+   magenta
+   ```
+
+2. **Sign in or add a key.** Type `/login` and choose either a subscription sign-in (for example *ChatGPT Plus/Pro (Codex)* or *GitHub Copilot*) or an API-key provider. Credentials are stored in `~/.magenta/agent/auth.json`. Environment variables work too:
+
+   ```bash
+   export OPENAI_API_KEY=...      # or ANTHROPIC_API_KEY, GEMINI_API_KEY, ...
+   magenta
+   ```
+
+   Magenta can also reuse an existing Claude Code (`~/.claude/settings.json`) or Codex (`~/.codex/auth.json`, `~/.codex/config.toml`) API-key configuration.
+
+3. **On a server, or with your own endpoint, use `/api`.** `/api add <name> <url>` saves an endpoint URL together with its API key (entered in a masked dialog) for the current provider (`anthropic`, `openai` or `google`), and switches to it. `/api` lists saved routes, `/api <name>` switches between them, and `/api remove <name>` deletes one. Routes are kept owner-only in `~/.magenta/agent/api-routes.json`.
+
+4. **Pick a model.** `/model` (or Ctrl+L) selects a model; Shift+Tab cycles the reasoning levels that model supports. `magenta --list-models` lists models from the command line.
+
+5. **Ask for something.**
+
+   ```text
+   Summarize this repository and run its documented checks.
+   ```
+
+   For a one-shot run that prints the answer and exits, use `magenta -p "..."`. Continue the last session with `magenta -c`, or pick one with `magenta -r`.
+
+Magenta reads `AGENTS.md` (and `CLAUDE.md`) from your project for project instructions. Project-local files are trusted per project: use `/trust`, or `--approve` / `--no-approve` for one run.
+
+## Features
+
+> [!IMPORTANT]
+> This section describes the latest published release, **v0.5.3**. See the [release notes](https://github.com/Minions-Land/Magenta-CLI/releases) for what changed in each version; features appear here only once they are released.
+
+**Agent and tools**
+- File tools (`read`, `edit`, `write`, `grep`, `find`) and `bash`, plus provider-neutral web search and web fetch tools.
+- Background commands (`bg_shell`), parallel sub-agents and workflows (`sub_agent`, with optional cost and token budgets), and persistent teammates (`multiagent`).
+- Reasoning profiles from `off` to `ultra` (`--thinking`; Shift+Tab in the interface).
+- Precise control of what the model may call: `--tools`, `--exclude-tools`, `--lock-tools`, and `--harness-<capability>` / `--no-harness-<capability>` switches. These control tool visibility; they are not an operating-system sandbox.
+
+**Models and providers**
+- Subscription sign-in through `/login`, API keys from the environment or the auth file, and reuse of supported Claude Code / Codex key files.
+- Named API routes (`/api`) that keep each endpoint pinned to its own key.
+- Prompt-cache controls (`--cache-retention none|short|long|auto`) and optional local cache telemetry.
+
+**Sessions**
+- Sessions are saved per project: continue (`-c`), resume (`-r`, `/resume`), fork, and navigate the session tree (`/tree`).
+- Automatic context compaction for long sessions.
+- Export a session to a self-contained HTML file with `/export` or `magenta --export <session-file>`.
+
+**Automation and integration**
+- One-shot mode (`-p`), JSON event output, RPC and app-server modes (`--mode json|rpc|app-server`).
+- Run limits for unattended use: `--run-timeout`, `--background-policy`, `--hard-budget`, `--max-child-agents`.
+- `--validate-config` checks models, credentials and resources without calling a model.
+- Run tools on another machine over SSH (`--ssh user@host`) and manage SSH mailbox relays (`magenta relay`).
+
+**Installation and updates**
+- Verified self-update (`magenta update self`), installation of an exact version (`--version <X.Y.Z>`), and rollback to the previous installation (`--rollback`).
+
+## Extend Magenta
+
+Magenta's built-in tools and behaviours are assembled as components through the **Harness Component Protocol (HCP)**: each component fills a named role with a fixed contract. A **Harness Package** adds components through the same contracts, so a domain system (its tools, skills and prompts) plugs into Magenta without changing Magenta itself.
+
+- **Use an official Package.** Inside Magenta, `/harness package` lists the official downloadable Packages (currently `Cardiomni` and `ClaudeScience`, published as releases of this repository). **Download & load** verifies the archive and stores it under `~/.magenta/harness-packages`.
+- **Select a Package from GitHub or a local folder** with `--harness-package`:
+
+  ```bash
+  magenta --harness-package 'github:owner/repository/PackageName@version:profile'
+  magenta --harness-packages-root /trusted/package-root --harness-package PackageName
+  ```
+
+  Downloads are checked against the release's `.sha256` file, and the first verified digest of each version is recorded so a silently replaced archive is rejected. Add `#sha256=<hex>` to pin a digest yourself.
+- **Build your own.** `magenta hcp check <package-root>` validates a local Package; `magenta --harness-list` shows the components and Sources in use.
+- **Lighter extensions.** `magenta install <source>` adds extensions, skills, prompt templates and themes; MCP servers are configured in `~/.magenta/agent/mcp-servers.json`.
+
+### Documentation
+
+Every release ships its full user documentation in the resources archive, and the installers place it beside the executable:
+
+| System | Documentation folder |
+|---|---|
+| macOS / Linux | `~/.local/lib/magenta/docs/` |
+| Windows | `%LOCALAPPDATA%\Magenta\docs\` |
+
+Start with `index.md` and `quickstart.md`. For the topics above, see `providers.md` (sign-in, API keys, `/api`), `usage.md`, `sessions.md`, `harness-packages.md`, `packages.md`, `mcp.md`, `settings.md` and `troubleshooting.md`.
+
+## Update and uninstall
 
 ```bash
-magenta update self
+magenta update self               # update to the latest release
+magenta update --version 0.5.2    # install an exact release, older or newer
+magenta update --rollback         # restore the previous installation
 ```
 
-`magenta --update` remains a compatibility alias. A TTY shows the asset, progress, and retry attempt; non-TTY runs stay quiet. The updater preserves the managed installation layout and user data such as settings, credentials, Sessions, and messages.
+Updates use the same verification as the installer and keep your settings, credentials and sessions. `magenta --update` is an older alias for `magenta update self`.
 
-## How a release is assembled
+**Uninstall on macOS / Linux** with the same bootstrap as the installation:
 
-```mermaid
-flowchart LR
-    Source["Magenta source tag"] --> Build["Clean multi-platform build"]
-    Build --> Assets["Executable + resources"]
-    Assets --> Checksums["SHA256SUMS + SOURCE_COMMIT"]
-    Checksums --> Verify["Release and installer checks"]
-    Verify --> Publish["Magenta-CLI release"]
+```bash
+bootstrap="$(mktemp)"
+curl -fsSL https://raw.githubusercontent.com/Minions-Land/Magenta-CLI/main/install.sh -o "$bootstrap"
+bash "$bootstrap" --uninstall
+rm -f "$bootstrap"
 ```
 
-A release is considered usable only after the platform executable, resources archive, checksum manifest, and `SOURCE_COMMIT` receipt agree. A single binary without its matching resources is incomplete.
+**Uninstall on Windows:** run the installation command above with `& $installer -Version $tag` replaced by `& $installer -Uninstall`.
 
-## Verification model
+Uninstalling removes only the installed release and its `PATH` entry. Your settings, credentials, sessions and caches in `~/.magenta` stay; delete that folder yourself if you no longer need them. If you installed with a custom `MAGENTA_INSTALL_DIR` / `MAGENTA_BIN_DIR`, set the same values when uninstalling.
 
-- The release workflow builds from an immutable Magenta source tag.
-- The exact nine-asset set is checked before publication.
-- The executable and resources are checked against `SHA256SUMS`.
-- Installers verify the candidate before changing the active entry point.
-- macOS and Linux startup checks exercise the packaged CLI; platform jobs also check architecture and materialized runtime helpers.
-- Public users can inspect `SOURCE_COMMIT` and the checksum manifest on every release.
+## Troubleshooting
 
-Apple Developer ID signing and notarization are outside the current release contract. On macOS, Gatekeeper may require Finder's **Open** action or an explicit confirmation in **Privacy & Security**.
+| Symptom | What to do |
+|---|---|
+| `magenta: command not found` | Add `~/.local/bin` to `PATH` (macOS / Linux), or open a new terminal after the Windows installer changed `PATH`. |
+| `Could not fetch latest release` | `api.github.com` is unreachable or rate-limited. A payload mirror does not help here; check your network or proxy. |
+| HTTP 403 from the GitHub API | The anonymous limit of 60 requests per hour is used up. Wait for the reset, or set `MAGENTA_GITHUB_TOKEN` to a token that can read public repositories. |
+| Downloads are slow | Set `MAGENTA_GITHUB_MIRROR` (see [Networks in mainland China](#networks-in-mainland-china)) and run the installer or `magenta update self` again. |
+| Verification failed | The download was corrupted or altered. Run the installer again; it never activates an unverified file. |
+| An old version cannot update itself | Releases from before the current asset layout cannot install new ones. Run the installation command again. |
+| Sign-in, model or tool problems | Run `magenta --validate-config` to check credentials, models and resources without calling a model, and `magenta --verbose` for startup details. `troubleshooting.md` in the [documentation folder](#documentation) covers more cases. |
 
+## Get help
+
+- **Bugs and questions:** [open an issue](https://github.com/Minions-Land/Magenta-CLI/issues) in this repository. Include the output of `magenta --version`, your operating system, and the steps to reproduce.
+- **Release history:** [Releases](https://github.com/Minions-Land/Magenta-CLI/releases). Each release lists its changes and records the source commit it was built from in `SOURCE_COMMIT`.
+- **Security issues:** please do not post exploit details in a public issue; open an issue asking for a private contact instead.
+
+## Security and verification
+
+- Releases are built by a release workflow from a tagged source commit and published here only after the exact asset set has been checked.
+- `SHA256SUMS` covers every payload of a release; installers and updates refuse files that do not match it or the digests GitHub reports for the release assets.
+- New versions are staged and started before they replace the active installation, so a failed update leaves the previous version in place.
+
+<a id="manual-download"></a>
 <details>
-<summary>Manual download and checksum verification</summary>
+<summary><strong>Manual download and checksum verification</strong></summary>
 
-Choose one exact tag and download the platform executable, resources archive, and manifest from that same tag:
+Choose one exact tag and download the platform executable, the resources archive and the manifest from that same tag:
 
 ```bash
 tag="<exact-release-tag>"
@@ -151,30 +301,94 @@ else
 fi
 ```
 
-This verifies files from one release; it does not install them or replace an existing entry point.
+This verifies the files; it does not install them. With a mirror, download the two large files through it but fetch `SHA256SUMS` directly from GitHub.
 </details>
 
-## Supported platforms
+<a id="unix-v0-0-29-manual-transition"></a>
+<details>
+<summary><strong>Unix v0.0.29 manual transition</strong> (only for the old v0.0.29 release)</summary>
 
-| Platform | Asset |
+`v0.0.29` predates the release-bound Unix installer, so the bootstrap above refuses to install it. This fixed procedure pins the tag and the reviewed manifest digest, downloads only that release's executable, resources and `SHA256SUMS`, and never downloads or runs a remote shell script. It installs into a new versioned directory and stops before writing anything if that directory or `~/.local/bin/magenta` already exists. From `v0.1.0` on, use the bootstrap above.
+
+```bash
+set -eu
+umask 077
+
+tag="v0.0.29"
+case "$(uname -s):$(uname -m)" in
+  Darwin:arm64) asset="magenta-macos-arm64" ;;
+  Darwin:x86_64) asset="magenta-macos-x64" ;;
+  Linux:x86_64) asset="magenta-linux-x64" ;;
+  *) echo "Unsupported platform for Magenta v0.0.29" >&2; exit 1 ;;
+esac
+
+base="https://github.com/Minions-Land/Magenta-CLI/releases/download/$tag"
+manifest_sha256="f61d38f8d9c7838a77b9e79d3c33d322fc328cb22c713a304614797f5e986d21"
+install_dir="$HOME/.local/lib/magenta-$tag"
+entrypoint="$HOME/.local/bin/magenta"
+
+if [ -e "$install_dir" ] || [ -L "$install_dir" ] || [ -e "$entrypoint" ] || [ -L "$entrypoint" ]; then
+  echo "Refusing to overwrite an existing Magenta installation." >&2
+  exit 1
+fi
+
+download_dir="$(mktemp -d "${TMPDIR:-/tmp}/magenta-v0.0.29.XXXXXXXX")"
+cleanup() { rm -rf "$download_dir"; }
+trap cleanup EXIT HUP INT TERM
+cd "$download_dir"
+
+curl -fL "$base/$asset" -o "$asset"
+curl -fL "$base/magenta-resources-universal.tar.gz" -o magenta-resources-universal.tar.gz
+curl -fL "$base/SHA256SUMS" -o SHA256SUMS
+
+verify_checksums() {
+  if command -v sha256sum >/dev/null 2>&1; then
+    sha256sum -c "$1"
+  elif command -v shasum >/dev/null 2>&1; then
+    shasum -a 256 -c "$1"
+  else
+    echo "Neither sha256sum nor shasum is available." >&2
+    return 1
+  fi
+}
+
+printf '%s  %s\n' "$manifest_sha256" SHA256SUMS > SHA256SUMS.root
+verify_checksums SHA256SUMS.root
+awk -v binary="$asset" '
+  NF == 2 && $2 == binary && length($1) == 64 && $1 !~ /[^0-9a-f]/ { binary_count++; print }
+  NF == 2 && $2 == "magenta-resources-universal.tar.gz" && length($1) == 64 && $1 !~ /[^0-9a-f]/ { resource_count++; print }
+  END { if (binary_count != 1 || resource_count != 1) exit 1 }
+' SHA256SUMS > SHA256SUMS.selected
+verify_checksums SHA256SUMS.selected
+
+mkdir -p "$HOME/.local/lib" "$HOME/.local/bin"
+mkdir "$install_dir"
+tar -xzf magenta-resources-universal.tar.gz -C "$install_dir"
+cp "$asset" "$install_dir/magenta"
+chmod 755 "$install_dir/magenta"
+version="$("$install_dir/magenta" --version)"
+test "$version" = "0.0.29"
+"$install_dir/magenta" --help >/dev/null
+ln -s "$install_dir/magenta" "$entrypoint"
+
+printf 'Installed Magenta %s at %s\n' "$version" "$entrypoint"
+```
+
+This path does not overwrite an earlier installation. If `~/.local/bin/magenta` already exists, decide whether to keep, migrate or remove it first; do not turn the refusal check into a forced overwrite.
+</details>
+
+## Repository contents
+
+| Path | Purpose |
 |---|---|
-| macOS Apple Silicon | `magenta-macos-arm64` |
-| macOS Intel | `magenta-macos-x64` |
-| Linux x64 | `magenta-linux-x64` |
-| Windows x64 | `magenta-windows-x64.exe` |
+| `install.sh` | The Unix bootstrap used above: resolves the latest tag and runs that release's verified installer. |
+| `.github/` | Checks for this repository and the published releases. |
+| `docs/` | The project website (GitHub Pages), including a viewer for shared session exports, and the Magenta logo files. |
 
-## Troubleshooting
+Product source code is not published in this repository.
 
-| Symptom | Check |
-|---|---|
-| `Could not fetch latest release` | Confirm access to `api.github.com`; payload mirrors do not proxy release metadata. |
-| Download is slow | Set `MAGENTA_GITHUB_MIRROR` for the payload and rerun the installer or `magenta update self`. |
-| HTTP 403 from GitHub API | Check the API rate-limit reset time; public releases do not require a token. |
-| `--update` is unavailable | Reinstall with the release-bound bootstrap; very old releases predate the current split-asset layout. |
-| Startup fails after a partial install | Re-run the installer for the exact release; it verifies and stages before activation. |
+## Licence and third-party notices
 
-For product behavior, HCP contracts, Tools, Hooks, Sessions, and development instructions, use the [Magenta source documentation](https://github.com/Minions-Land/Magenta#documentation).
+This repository has no licence file yet. The runtime resources of each release declare the MIT licence in their bundled `package.json`. Magenta is built on open-source software, including the [Pi](https://github.com/earendil-works/pi) coding agent by Mario Zechner and contributors (MIT), and HTML exports embed [marked](https://github.com/markedjs/marked) and [highlight.js](https://github.com/highlightjs/highlight.js); those components remain under their own licences.
 
-## Maintainers
-
-Release publication is tag-driven from the Magenta source repository. Read its [release guide](https://github.com/Minions-Land/Magenta/blob/main/docs/UPDATE_SETUP_GUIDE.md) before running release commands. Do not upload ad-hoc local binaries as a substitute for the verified workflow.
+The Magenta name and mark are the project's brand assets.
