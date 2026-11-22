@@ -39,3 +39,12 @@ in HTML exports. Starting with the next release, the full notices, including
 every bundled package's license text, ship in `docs/THIRD-PARTY-NOTICES.md`
 inside the `magenta-resources-universal.tar.gz` asset; after installation the
 same file is in the `docs` folder next to the `magenta` executable.
+
+## Software in the browser app
+
+The browser app under `docs/app/` (served at
+<https://minions-land.github.io/Magenta-CLI/app/>) bundles npm packages (the
+OpenAI, Anthropic and Google Gen AI SDKs, TypeBox and their dependencies) and
+the marked and highlight.js libraries. Their notices, including each bundled
+package's license text, are in `docs/app/LICENSES.txt`, which is generated with
+every build of the app.

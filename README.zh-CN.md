@@ -22,6 +22,7 @@
 </p>
 
 <p align="center">
+  <a href="https://minions-land.github.io/Magenta-CLI/app/"><strong>在浏览器中试用</strong></a> ·
   <a href="#安装">安装</a> ·
   <a href="#快速上手">快速上手</a> ·
   <a href="#功能">功能</a> ·
@@ -41,6 +42,18 @@ Magenta 是一个终端编程 Agent。在项目目录中启动它，描述你想
 - **可扩展。** Harness Package、MCP 服务器、扩展、技能（skills）和提示模板都能增加能力，无需重新构建 Magenta。
 
 本仓库发布可安装的版本。每个 Release 都包含各平台可执行文件、一个运行时资源包、`SHA256SUMS` 校验清单和安装脚本；安装脚本在启用新版本之前会校验所有文件。
+
+## 在浏览器中试用
+
+**[浏览器版 Magenta](https://minions-land.github.io/Magenta-CLI/app/)** 与 `magenta web` 使用同一套聊天界面，完全运行在网页中，使用你自己的 API key（OpenAI、Anthropic、OpenRouter、Google Gemini），或你自己的 endpoint URL 与 key（OpenAI Responses、OpenAI Chat Completions 或 Anthropic Messages 协议；该 endpoint 必须允许网页直接访问）。
+
+- **隐私优先。** 请求从你的浏览器直接发往你选择的提供商；不会发送到 Magenta 的服务器（我们没有服务器）。key 默认只保存在当前标签页的内存中，除非你选择在本设备上记住；一个按钮即可清除所有 key 和对话。
+- **对话树。** 可从你的任意一条消息分叉、克隆对话、给轮次加标签；对话以 Magenta 会话格式保存在你的浏览器中。
+- **任意提供商，同一界面，** 每条回答都显示 token 与提示缓存（cache read）统计。
+- **可审计的文件。** 可将对话导出为会话 JSONL（可在 CLI 中打开）或自包含的 HTML 文件，并可导入会话 JSONL。
+- **网页搜索** 优先使用提供商自带的搜索（OpenAI、Anthropic），否则可用你自己的 Tavily key。
+
+浏览器版无法访问你的电脑。订阅登录（ChatGPT 或 Claude 套餐）、读取和编辑项目及运行命令的工具、Package、记忆以及自动上下文压缩都需要 CLI：先[安装](#安装)，再运行 `magenta` 或 `magenta web`。
 
 ## 安装
 
@@ -314,6 +327,7 @@ fi
 | `install.sh` | 上面使用的 Unix bootstrap：解析最新 tag 并运行该 Release 中经过校验的安装脚本。 |
 | `.github/` | 本仓库和已发布 Release 的检查。 |
 | `docs/` | 项目网站（GitHub Pages），包括共享会话导出的查看器，以及 Magenta 标志文件。 |
+| `docs/app/` | 浏览器版 Magenta：压缩后的网页应用包及其静态资源（`build-info.json` 记录源码提交与文件摘要；`LICENSES.txt` 列出打包的第三方包）。 |
 | `docs/catalog/` | Magenta 用于更新模型信息的公开模型目录，由 Release 内置的模型数据生成（见 `docs/catalog/README.md`）。 |
 | `LICENSE`、`THIRD-PARTY-NOTICES.md` | Magenta CLI 的 MIT 许可证与第三方声明。 |
 

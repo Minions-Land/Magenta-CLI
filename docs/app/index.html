@@ -1,0 +1,81 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'self' https:; frame-src blob:; child-src blob:; worker-src 'none'; object-src 'none'; font-src 'none'; media-src 'none'; manifest-src 'none'; base-uri 'none'; form-action 'none'">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="referrer" content="no-referrer">
+  <meta name="color-scheme" content="light dark">
+  <title>Magenta</title>
+  <meta name="description" content="Magenta in your browser: chat with your own API key or endpoint. Requests go straight from your browser to the provider.">
+  <link rel="icon" type="image/svg+xml" href="favicon.svg">
+  <link rel="stylesheet" href="app.ff56c3ff69f4.css" integrity="sha384-rbagP7bRmmKrfvoAVFYI7NhIpaZ4gAIiMkZkWv0ZJGfjCT4Z40p3ZlIT4fCh6+6d">
+  <script src="vendor/marked.min.js" integrity="sha384-8o82OW6HW401nUj7wf2ObxhNTCM0o9aVFBtLgVSDm/QRsHHyJRYJWmZkt7vTkiWg" defer></script>
+  <script src="vendor/highlight.min.js" integrity="sha384-F/bZzf7p3Joyp5psL90p/p89AZJsndkSoGwRpXcZhleCWhd8SnRuoYo4d0yirjJp" defer></script>
+  <script type="module" src="app.a2eaa983f855.js" integrity="sha384-X2xtIpjkMJqGxMVBi3XxgUiOvIfYtWBSVZ4odeGVSI0EgJoJuLynmnn3qfmep2uc"></script>
+</head>
+<body>
+  <a class="skip-link" href="#composer-input">Skip to message box</a>
+  <div id="app" class="app">
+    <aside id="sidebar" class="sidebar" aria-label="Sessions">
+      <header class="sidebar-head">
+        <picture class="brand">
+          <source srcset="mark-dark.svg" media="(prefers-color-scheme: dark)">
+          <img src="mark.svg" alt="Magenta" width="28" height="28">
+        </picture>
+        <span class="brand-name">Magenta</span>
+        <button id="new-chat" class="btn primary" type="button" title="New chat">New chat</button>
+        <button id="close-sidebar" class="btn icon narrow-only" type="button" aria-label="Close sessions">&#10005;</button>
+      </header>
+      <label class="visually-hidden" for="session-search">Search sessions</label>
+      <input id="session-search" class="search" type="search" placeholder="Search sessions" autocomplete="off">
+      <div id="session-files" class="session-files" hidden>
+        <button id="import-session" class="btn small" type="button" title="Open a Magenta session JSONL file">Import session</button>
+        <input id="import-file" type="file" accept=".jsonl,application/x-ndjson,application/jsonl" hidden>
+      </div>
+      <nav id="session-list" class="session-list" aria-label="Session list"></nav>
+      <section id="tree-panel" class="tree-panel" aria-labelledby="tree-title">
+        <h2 id="tree-title" class="panel-title">Session tree</h2>
+        <div id="session-tree" class="session-tree" role="tree" aria-label="Session tree"></div>
+      </section>
+      <footer id="host-links" class="host-links"></footer>
+    </aside>
+    <main class="main" aria-label="Conversation">
+      <header class="topbar">
+        <button id="toggle-sidebar" class="btn icon" type="button" aria-controls="sidebar" aria-expanded="true" title="Toggle sessions">&#9776;</button>
+        <h1 id="session-title" class="session-title">Magenta</h1>
+        <label class="visually-hidden" for="model-picker">Model</label>
+        <select id="model-picker" class="model-picker" title="Model and route"></select>
+        <label class="visually-hidden" for="thinking-picker">Thinking level</label>
+        <select id="thinking-picker" class="model-picker thinking-picker" title="Thinking level" hidden></select>
+        <button id="open-signin" class="btn" type="button" aria-haspopup="dialog">Sign-in</button>
+        <button id="export" class="btn" type="button" title="Download an auditable HTML export">Export</button>
+        <button id="share" class="btn" type="button" title="Save the HTML export locally and show its path">Share</button>
+      </header>
+      <div id="banner" class="banner" role="status" hidden></div>
+      <div id="messages" class="messages" aria-live="polite"></div>
+      <footer class="composer-area">
+        <div id="slash-menu" class="slash-menu" role="listbox" aria-label="Commands" hidden></div>
+        <form id="composer" class="composer" autocomplete="off">
+          <label class="visually-hidden" for="composer-input">Message</label>
+          <textarea id="composer-input" rows="1" placeholder="Message Magenta (Enter to send, Shift+Enter for a new line, / for commands)" aria-describedby="usage"></textarea>
+          <button id="send" class="btn primary" type="submit">Send</button>
+          <button id="stop" class="btn danger" type="button" hidden>Stop</button>
+        </form>
+        <div id="queue" class="queue" aria-live="polite"></div>
+        <div id="usage" class="usage" aria-live="off"></div>
+      </footer>
+    </main>
+  </div>
+  <dialog id="signin-dialog" class="dialog" aria-labelledby="signin-title">
+    <div class="dialog-body">
+      <h2 id="signin-title">Sign-in</h2>
+      <p id="signin-note" class="muted">Credentials stay in this machine's Magenta store. This page only sees whether a provider is signed in.</p>
+      <div id="signin-providers" class="signin-providers"></div>
+      <div id="signin-flow" class="signin-flow" aria-live="polite"></div>
+      <div class="dialog-actions"><button id="signin-close" class="btn" type="button">Close</button></div>
+    </div>
+  </dialog>
+  <noscript>Magenta web needs JavaScript.</noscript>
+</body>
+</html>

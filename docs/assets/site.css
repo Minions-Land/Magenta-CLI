@@ -58,6 +58,9 @@ pre {
 .hero h1 { margin: 12px 0 4px; font-size: 2rem; }
 .hero p { margin: 0; color: var(--text-dim); }
 .links { margin-top: 16px; display: flex; gap: 18px; justify-content: center; flex-wrap: wrap; }
+.hero .cta { margin-top: 20px; }
+.cta-button { display: inline-block; padding: 10px 22px; border-radius: 999px; background: #ec008c; color: #ffffff; font-weight: 600; text-decoration: none; }
+.cta-button:hover, .cta-button:focus-visible { background: #c80077; color: #ffffff; }
 h2 { margin-top: 36px; font-size: 1.25rem; border-bottom: 1px solid var(--border); padding-bottom: 4px; }
 .footer { margin-top: 48px; color: var(--text-dim); font-size: 0.9em; text-align: center; }
 

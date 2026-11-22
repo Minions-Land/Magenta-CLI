@@ -22,6 +22,7 @@
 </p>
 
 <p align="center">
+  <a href="https://minions-land.github.io/Magenta-CLI/app/"><strong>Try it in your browser</strong></a> ·
   <a href="#install">Install</a> ·
   <a href="#quick-start">Quick start</a> ·
   <a href="#features">Features</a> ·
@@ -41,6 +42,18 @@ Magenta is a terminal coding agent. You start it inside a project, describe what
 - **Extensible.** Harness Packages, MCP servers, extensions, skills and prompt templates add capabilities without rebuilding Magenta.
 
 This repository publishes the installable releases. Every release contains the executables, one runtime resources archive, a `SHA256SUMS` manifest and the installers; the installers verify everything before they activate a new version.
+
+## Try it in your browser
+
+**[Magenta in your browser](https://minions-land.github.io/Magenta-CLI/app/)** is the same chat interface as `magenta web`, running entirely in the web page with your own API key (OpenAI, Anthropic, OpenRouter, Google Gemini) or your own endpoint URL and key (OpenAI Responses, OpenAI Chat Completions or Anthropic Messages; the endpoint must allow requests from web pages).
+
+- **Private by design.** Requests go from your browser directly to the provider you choose; nothing is sent to Magenta's servers (there are none). Keys stay in the tab's memory unless you choose to remember them on your device, and one button forgets all keys and chats.
+- **A conversation tree.** Fork from any of your messages, clone a chat, label turns; chats are stored in your browser as Magenta sessions.
+- **Any provider, one interface,** with token and prompt-cache statistics for every answer.
+- **Auditable files.** Export a chat as session JSONL (opens in the CLI) or as a self-contained HTML file, and import session JSONL.
+- **Web search** uses the provider's own search where it offers one (OpenAI, Anthropic), or Tavily with your own key.
+
+The browser app cannot touch your computer. Subscription sign-in (ChatGPT or Claude plans), the tools that read and edit your project and run commands, Packages, memory and automatic compaction need the CLI: [install it](#install), then run `magenta` or `magenta web`.
 
 ## Install
 
@@ -385,6 +398,7 @@ This path does not overwrite an earlier installation. If `~/.local/bin/magenta` 
 | `install.sh` | The Unix bootstrap used above: resolves the latest tag and runs that release's verified installer. |
 | `.github/` | Checks for this repository and the published releases. |
 | `docs/` | The project website (GitHub Pages), including a viewer for shared session exports, and the Magenta logo files. |
+| `docs/app/` | Magenta in your browser: the minified web app bundle and its static assets (`build-info.json` records the source commit and file digests; `LICENSES.txt` lists the bundled packages). |
 | `docs/catalog/` | The public model catalog Magenta reads for model updates, generated from the model data built into the release (see `docs/catalog/README.md`). |
 | `LICENSE`, `THIRD-PARTY-NOTICES.md` | The MIT licence of Magenta CLI and the third-party notices. |
 

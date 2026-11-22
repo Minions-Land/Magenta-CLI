@@ -17,6 +17,7 @@
       <img class="only-dark" src="assets/magenta-mark-on-ink.svg" alt="Magenta" width="96">
       <h1>Magenta CLI</h1>
       <p>An AI coding agent for your terminal: it reads your project, edits files and runs commands, with the model provider you choose.</p>
+      <p class="cta"><a class="cta-button" href="app/">Try it in your browser</a></p>
       <nav class="links">
         <a href="https://github.com/Minions-Land/Magenta-CLI#install">Install guide</a>
         <a href="https://github.com/Minions-Land/Magenta-CLI/releases">Releases</a>
@@ -25,7 +26,11 @@
       </nav>
     </header>
 
-    <h2>Install on macOS or Linux</h2>
+    <h2 id="browser">Try it in your browser</h2>
+    <p><a href="app/">Magenta in your browser</a> is the same chat interface as <code>magenta web</code>, running entirely in this page with your own API key (OpenAI, Anthropic, OpenRouter, Google Gemini) or your own endpoint URL and key. Requests go from your browser directly to the provider you choose; nothing is sent to Magenta's servers (there are none). Keys stay in the tab's memory unless you ask the page to remember them on your device.</p>
+    <p>It keeps what makes Magenta useful: a conversation tree with fork, clone and labels, any provider or your own endpoint in one interface, token and prompt-cache statistics for every answer, and export (session JSONL that opens in the CLI, or a self-contained HTML file) and import. Web search uses the provider's own search where it has one, or Tavily with your key. It cannot touch your computer: for subscription sign-in, local tools that read and edit your project, Packages and memory, install the CLI below.</p>
+
+    <h2 id="install">Install on macOS or Linux</h2>
     <pre><code>bootstrap="$(mktemp)"
 curl -fsSL https://raw.githubusercontent.com/Minions-Land/Magenta-CLI/main/install.sh -o "$bootstrap"
 bash "$bootstrap"
