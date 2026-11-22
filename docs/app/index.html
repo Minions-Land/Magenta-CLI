@@ -9,10 +9,10 @@
   <title>Magenta</title>
   <meta name="description" content="Magenta in your browser: chat with your own API key or endpoint. Requests go straight from your browser to the provider.">
   <link rel="icon" type="image/svg+xml" href="favicon.svg">
-  <link rel="stylesheet" href="app.ff56c3ff69f4.css" integrity="sha384-rbagP7bRmmKrfvoAVFYI7NhIpaZ4gAIiMkZkWv0ZJGfjCT4Z40p3ZlIT4fCh6+6d">
+  <link rel="stylesheet" href="app.af5b1cfceb23.css" integrity="sha384-rkH8Cy0XktCeZhxJcBRbYKpzp6/bKSAXCfyyHwilZ8T4KMt5sL1l1mmSzwL0E1Dl">
   <script src="vendor/marked.min.js" integrity="sha384-8o82OW6HW401nUj7wf2ObxhNTCM0o9aVFBtLgVSDm/QRsHHyJRYJWmZkt7vTkiWg" defer></script>
   <script src="vendor/highlight.min.js" integrity="sha384-F/bZzf7p3Joyp5psL90p/p89AZJsndkSoGwRpXcZhleCWhd8SnRuoYo4d0yirjJp" defer></script>
-  <script type="module" src="app.d6ac3dafe642.js" integrity="sha384-SfZOSpNN8EIZpF2HEVAS5EPdnSQr/oKdshPCnwvoKO+pfgWWrk6VElBbBmUgjDoG"></script>
+  <script type="module" src="app.14c5c25deff6.js" integrity="sha384-EdoiHd1XdbBR2zyvHpdnowgD4Ih877rFuKEi9Z/o9H5A4Kdr8QuP0E3/fJQ0Tfz/"></script>
 </head>
 <body>
   <a class="skip-link" href="#composer-input">Skip to message box</a>
@@ -67,13 +67,17 @@
       </footer>
     </main>
   </div>
-  <dialog id="signin-dialog" class="dialog" aria-labelledby="signin-title">
-    <div class="dialog-body">
-      <h2 id="signin-title">Sign-in</h2>
-      <p id="signin-note" class="muted">Credentials stay in this machine's Magenta store. This page only sees whether a provider is signed in.</p>
-      <div id="signin-providers" class="signin-providers"></div>
-      <div id="signin-flow" class="signin-flow" aria-live="polite"></div>
-      <div class="dialog-actions"><button id="signin-close" class="btn" type="button">Close</button></div>
+  <dialog id="signin-dialog" class="dialog signin-dialog" aria-labelledby="signin-title">
+    <div class="dialog-frame">
+      <header class="dialog-head">
+        <h2 id="signin-title">Sign-in</h2>
+        <button id="signin-close" class="btn" type="button">Close</button>
+      </header>
+      <div class="dialog-scroll">
+        <p id="signin-note" class="muted">Credentials stay in this machine's Magenta store. This page only sees whether a provider is signed in.</p>
+        <div id="signin-flow" class="signin-flow" aria-live="polite"></div>
+        <div id="signin-providers" class="signin-providers"></div>
+      </div>
     </div>
   </dialog>
   <noscript>Magenta web needs JavaScript.</noscript>
