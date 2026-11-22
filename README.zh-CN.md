@@ -18,6 +18,7 @@
   <a href="https://github.com/Minions-Land/Magenta-CLI/releases/latest"><img alt="最新版本" src="https://img.shields.io/github/v/release/Minions-Land/Magenta-CLI?label=release&color=EC008C"></a>
   <a href="#支持的平台"><img alt="平台：macOS、Linux、Windows" src="https://img.shields.io/badge/platforms-macOS%20%7C%20Linux%20%7C%20Windows-555555"></a>
   <a href="https://github.com/Minions-Land/Magenta-CLI/actions/workflows/ci.yml"><img alt="分发检查" src="https://github.com/Minions-Land/Magenta-CLI/actions/workflows/ci.yml/badge.svg"></a>
+  <a href="LICENSE"><img alt="许可证：MIT" src="https://img.shields.io/github/license/Minions-Land/Magenta-CLI?color=555555"></a>
 </p>
 
 <p align="center">
@@ -313,11 +314,13 @@ fi
 | `install.sh` | 上面使用的 Unix bootstrap：解析最新 tag 并运行该 Release 中经过校验的安装脚本。 |
 | `.github/` | 本仓库和已发布 Release 的检查。 |
 | `docs/` | 项目网站（GitHub Pages），包括共享会话导出的查看器，以及 Magenta 标志文件。 |
+| `docs/catalog/` | Magenta 用于更新模型信息的公开模型目录，由 Release 内置的模型数据生成（见 `docs/catalog/README.md`）。 |
+| `LICENSE`、`THIRD-PARTY-NOTICES.md` | Magenta CLI 的 MIT 许可证与第三方声明。 |
 
 本仓库不发布产品源代码。
 
 ## 许可与第三方声明
 
-本仓库目前没有许可证文件。每个 Release 的运行时资源在其附带的 `package.json` 中声明了 MIT 许可证。Magenta 基于开源软件构建，包括 Mario Zechner 及贡献者开发的 [Pi](https://github.com/earendil-works/pi) 编程 Agent（MIT），HTML 导出中嵌入了 [marked](https://github.com/markedjs/marked) 和 [highlight.js](https://github.com/highlightjs/highlight.js)；这些组件仍适用其各自的许可证。
+Magenta CLI 以 [MIT 许可证](LICENSE) 发布。它衍生自 Mario Zechner 及贡献者开发的 [Pi](https://github.com/earendil-works/pi) 编程 Agent，按 MIT 许可证使用；[THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md) 收录了 Pi 的许可声明。Release 中打包的第三方软件，包括可执行文件内的 npm 包、内嵌的 ripgrep 可执行文件，以及 HTML 导出中嵌入的 [marked](https://github.com/markedjs/marked) 和 [highlight.js](https://github.com/highlightjs/highlight.js)，仍适用其各自的许可证。从下一个 Release 起，每个 Release 都在 `docs/THIRD-PARTY-NOTICES.md` 中附带完整声明，安装后位于 `magenta` 可执行文件旁的 `docs` 目录。
 
 Magenta 名称和标志是本项目的品牌资产。

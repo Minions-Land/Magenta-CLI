@@ -18,6 +18,7 @@
   <a href="https://github.com/Minions-Land/Magenta-CLI/releases/latest"><img alt="Latest release" src="https://img.shields.io/github/v/release/Minions-Land/Magenta-CLI?label=release&color=EC008C"></a>
   <a href="#supported-platforms"><img alt="Platforms: macOS, Linux, Windows" src="https://img.shields.io/badge/platforms-macOS%20%7C%20Linux%20%7C%20Windows-555555"></a>
   <a href="https://github.com/Minions-Land/Magenta-CLI/actions/workflows/ci.yml"><img alt="Distribution checks" src="https://github.com/Minions-Land/Magenta-CLI/actions/workflows/ci.yml/badge.svg"></a>
+  <a href="LICENSE"><img alt="License: MIT" src="https://img.shields.io/github/license/Minions-Land/Magenta-CLI?color=555555"></a>
 </p>
 
 <p align="center">
@@ -384,11 +385,13 @@ This path does not overwrite an earlier installation. If `~/.local/bin/magenta` 
 | `install.sh` | The Unix bootstrap used above: resolves the latest tag and runs that release's verified installer. |
 | `.github/` | Checks for this repository and the published releases. |
 | `docs/` | The project website (GitHub Pages), including a viewer for shared session exports, and the Magenta logo files. |
+| `docs/catalog/` | The public model catalog Magenta reads for model updates, generated from the model data built into the release (see `docs/catalog/README.md`). |
+| `LICENSE`, `THIRD-PARTY-NOTICES.md` | The MIT licence of Magenta CLI and the third-party notices. |
 
 Product source code is not published in this repository.
 
 ## Licence and third-party notices
 
-This repository has no licence file yet. The runtime resources of each release declare the MIT licence in their bundled `package.json`. Magenta is built on open-source software, including the [Pi](https://github.com/earendil-works/pi) coding agent by Mario Zechner and contributors (MIT), and HTML exports embed [marked](https://github.com/markedjs/marked) and [highlight.js](https://github.com/highlightjs/highlight.js); those components remain under their own licences.
+Magenta CLI is released under the [MIT Licence](LICENSE). It is derived from the [Pi](https://github.com/earendil-works/pi) coding agent by Mario Zechner and contributors, used under the MIT Licence; [THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md) reproduces Pi's notice. Third-party software bundled in a release, including the npm packages in the executable, the embedded ripgrep executables and the [marked](https://github.com/markedjs/marked) and [highlight.js](https://github.com/highlightjs/highlight.js) libraries in HTML exports, remains under its own licence. Starting with the next release, each release ships the full notices in `docs/THIRD-PARTY-NOTICES.md`, next to the `magenta` executable after installation.
 
 The Magenta name and mark are the project's brand assets.
