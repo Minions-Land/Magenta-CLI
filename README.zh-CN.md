@@ -349,6 +349,6 @@ fi
 
 ## 许可与第三方声明
 
-Magenta CLI 以 [MIT 许可证](LICENSE) 发布。它衍生自 Mario Zechner 及贡献者开发的 [Pi](https://github.com/earendil-works/pi) 编程 Agent，按 MIT 许可证使用；[THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md) 收录了 Pi 的许可声明。Release 中打包的第三方软件，包括可执行文件内的 npm 包、内嵌的 ripgrep 可执行文件，以及 HTML 导出中嵌入的 [marked](https://github.com/markedjs/marked) 和 [highlight.js](https://github.com/highlightjs/highlight.js)，仍适用其各自的许可证。从下一个 Release 起，每个 Release 都在 `docs/THIRD-PARTY-NOTICES.md` 中附带完整声明，安装后位于 `magenta` 可执行文件旁的 `docs` 目录。
+Magenta CLI 以 [MIT 许可证](LICENSE) 发布。它衍生自 Mario Zechner 及贡献者开发的 [Pi](https://github.com/earendil-works/pi) 编程 Agent，按 MIT 许可证使用；[THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md) 收录了 Pi 的许可声明。Release 中打包的第三方软件，包括可执行文件内的 npm 包、内嵌的 ripgrep 可执行文件，以及 HTML 导出中嵌入的 [marked](https://github.com/markedjs/marked) 和 [highlight.js](https://github.com/highlightjs/highlight.js)，仍适用其各自的许可证。自 v0.6.0 起，每个 Release 都在 `docs/THIRD-PARTY-NOTICES.md` 中附带完整声明，安装后位于 `magenta` 可执行文件旁的 `docs` 目录。
 
 Magenta 名称和标志是本项目的品牌资产。
