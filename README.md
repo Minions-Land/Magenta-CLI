@@ -53,7 +53,7 @@ This repository publishes the installable releases. Every release contains the e
 - **Auditable files.** Export a chat as session JSONL (opens in the CLI) or as a self-contained HTML file, and import session JSONL.
 - **Web search** uses the provider's own search where it offers one (OpenAI, Anthropic), or Tavily with your own key.
 
-The browser app cannot touch your computer. Subscription sign-in (ChatGPT plans), the tools that read and edit your project and run commands, Packages, memory and automatic compaction need the CLI: [install it](#install), then run `magenta` (`magenta web`, the same interface served by your own machine, arrives in the next release).
+The browser app cannot touch your computer. Subscription sign-in (ChatGPT plans), the tools that read and edit your project and run commands, Packages, memory and automatic compaction need the CLI: [install it](#install), then run `magenta`, or `magenta web` for the same interface served by your own machine.
 
 ## Install
 
@@ -108,7 +108,7 @@ This installs to `%LOCALAPPDATA%\Magenta` and adds it to your user `PATH`; open 
 magenta --version
 ```
 
-prints the installed version, for example `0.5.3`. `magenta --help` lists every option; it starts like this:
+prints the installed version, for example `0.6.0`. `magenta --help` lists every option; it starts like this:
 
 ```text
 Magenta - AI coding assistant with file, shell, and background work tools
@@ -125,8 +125,14 @@ Commands:
   magenta list                      List installed extensions from settings
   magenta config                    Open TUI to enable/disable package resources
   magenta relay <command>           Add, start, stop, inspect, or diagnose SSH mailbox relays
-  magenta hcp check <package-root>  Validate one local Harness Package
-  magenta <command> --help          Show help for install/remove/uninstall/update/list/relay/hcp
+  magenta hcp check <package-root>  Validate one local Harness Package (all profiles; --profile, --assemble)
+  magenta hcp list | prune [--yes]  Show the Harness Package cache; prune it and the local component store (dry run without --yes)
+  magenta hcp use | status | reset | log | diff | rollback  Local HCP components: select, inspect, history (--scope user|project|session)
+  magenta hcp contract | schema | types | new | check --conformance  Author local HCP components
+  magenta doctor [--json]           Read-only health report (install, config, credentials, network)
+  magenta checkpoints list | restore <n> [--force]  List or restore file checkpoints (--harness-file-checkpoints)
+  magenta web [--port <n>] [--no-open]  Local web chat UI on 127.0.0.1 (web Tools only; see docs/web.md)
+  magenta <command> --help          Show help for install/remove/uninstall/update/list/relay/hcp/doctor/checkpoints/web
 ```
 
 > [!NOTE]
@@ -166,7 +172,7 @@ The mirror is used only for the executable and the resources archive. Release me
    magenta
    ```
 
-2. **Sign in or add a key.** Type `/login` and choose either a subscription sign-in (for example *ChatGPT Plus/Pro (Codex)* or *GitHub Copilot*) or an API-key provider. Credentials are stored in `~/.magenta/agent/auth.json`. Environment variables work too:
+2. **Sign in or add a key.** Type `/login` and choose a subscription sign-in (for example *ChatGPT sign-in for Magenta*, *Codex sign-in* or *GitHub Copilot*), an API-key provider, or an endpoint URL with its key. `/login chatgpt` and `/login codex` go straight to the two OpenAI plan sign-ins; Codex sign-in uses a device code, so it also works over SSH. Credentials are stored in `~/.magenta/agent/auth.json`. Environment variables work too:
 
    ```bash
    export OPENAI_API_KEY=...      # or ANTHROPIC_API_KEY, GEMINI_API_KEY, ...
@@ -192,23 +198,30 @@ Magenta reads `AGENTS.md` (and `CLAUDE.md`) from your project for project instru
 ## Features
 
 > [!IMPORTANT]
-> This section describes the latest published release, **v0.5.3**. See the [release notes](https://github.com/Minions-Land/Magenta-CLI/releases) for what changed in each version; features appear here only once they are released.
+> This section describes the latest published release, **v0.6.0**. See the [release notes](https://github.com/Minions-Land/Magenta-CLI/releases) for what changed in each version; features appear here only once they are released.
+
+**Upgrading from v0.5.x:** the web tools are now called `web_search` and `web_fetch` (the old `web-search` / `web-fetch` names are not aliases in `--tools`, settings or tool policies), and Claude plan sign-in is removed: use an Anthropic API key or a compatible endpoint and key (`/api`).
 
 **Agent and tools**
-- File tools (`read`, `edit`, `write`, `grep`, `find`) and `bash`, plus provider-neutral web search and web fetch tools.
+- File tools (`read`, `edit`, `write`, `grep`, `find`) and `bash`, plus provider-neutral `web_search` and `web_fetch` tools.
 - Background commands (`bg_shell`), parallel sub-agents and workflows (`sub_agent`, with optional cost and token budgets), and persistent teammates (`multiagent`).
 - Reasoning profiles from `off` to `ultra` (`--thinking`; Shift+Tab in the interface).
 - Precise control of what the model may call: `--tools`, `--exclude-tools`, `--lock-tools`, and `--harness-<capability>` / `--no-harness-<capability>` switches. These control tool visibility; they are not an operating-system sandbox.
 
 **Models and providers**
-- Subscription sign-in through `/login`, API keys from the environment or the auth file, and reuse of supported Claude Code / Codex key files.
-- Named API routes (`/api`) that keep each endpoint pinned to its own key.
+- Subscription sign-in through `/login`, including the OpenAI plan sign-ins `/login chatgpt` and `/login codex` with models listed per account; API keys from the environment or the auth file, and reuse of supported Claude Code / Codex key files.
+- Endpoint URL + API key routes, set up from `/login` or `/api`, each pinned to its own key.
 - Prompt-cache controls (`--cache-retention none|short|long|auto`) and optional local cache telemetry.
 
 **Sessions**
 - Sessions are saved per project: continue (`-c`), resume (`-r`, `/resume`), fork, and navigate the session tree (`/tree`).
-- Automatic context compaction for long sessions.
+- Automatic context compaction for long sessions; compaction summaries read the conversation from the prompt cache by default (`compaction.summaryCache`).
+- File checkpoints (opt-in, `--harness-file-checkpoints`): `/rewind` undoes the file changes of any earlier turn, with or without the conversation; `magenta checkpoints` does the same from the command line.
+- Context recall (opt-in, `--harness-context-recall`): the `context_recall` tool fetches exact text from the session, including turns removed by compaction, and optionally from past sessions of the project. Context sharing (opt-in, `--harness-context-share`) passes that text verbatim to sub-agents and teammates.
 - Export a session to a self-contained HTML file with `/export` or `magenta --export <session-file>`.
+
+**Browser**
+- `magenta web` opens a local browser chat on 127.0.0.1, driven by the same session runtime as the CLI, with a fixed set of web tools (no shell or file tools). The [hosted web app](https://minions-land.github.io/Magenta-CLI/app/) needs no install and runs with your own key or endpoint. Both are in English and Simplified Chinese.
 
 **Automation and integration**
 - One-shot mode (`-p`), JSON event output, RPC and app-server modes (`--mode json|rpc|app-server`).
@@ -232,7 +245,8 @@ Magenta's built-in tools and behaviours are assembled as components through the 
   ```
 
   Downloads are checked against the release's `.sha256` file, and the first verified digest of each version is recorded so a silently replaced archive is rejected. Add `#sha256=<hex>` to pin a digest yourself.
-- **Build your own.** `magenta hcp check <package-root>` validates a local Package; `magenta --harness-list` shows the components and Sources in use.
+- **Build your own.** `magenta hcp check <package-root>` validates a local Package; `magenta --harness-list` shows the components and Sources in use. Packages can add entries to the `/` menu; menu protocol v2 adds typed arguments, conditions, state badges and capability toggles.
+- **Replace a built-in tool with your own.** `magenta hcp use` swaps the implementation behind an open built-in tool (`grep`, `read`, `ls`, `find`, `web_fetch`, `web_search`) for your own local Source, scoped to your user, a project or one session. You approve each one at your terminal by typing its digest; `magenta hcp log` and `magenta hcp rollback` keep the history and undo a change. With `--harness-hcp-propose` (off by default) the agent can propose a component, and only you can approve it.
 - **Lighter extensions.** `magenta install <source>` adds extensions, skills, prompt templates and themes; MCP servers are configured in `~/.magenta/agent/mcp-servers.json`.
 
 ### Documentation
@@ -244,13 +258,13 @@ Every release ships its full user documentation in the resources archive, and th
 | macOS / Linux | `~/.local/lib/magenta/docs/` |
 | Windows | `%LOCALAPPDATA%\Magenta\docs\` |
 
-Start with `index.md` and `quickstart.md`. For the topics above, see `providers.md` (sign-in, API keys, `/api`), `usage.md`, `sessions.md`, `harness-packages.md`, `packages.md`, `mcp.md`, `settings.md` and `troubleshooting.md`.
+Start with `index.md` and `quickstart.md`. For the topics above, see `providers.md` (sign-in, API keys, `/api`), `usage.md`, `sessions.md`, `web.md`, `file-checkpoints.md`, `context-recall.md`, `context-sharing.md`, `compaction.md`, `harness-packages.md`, `packages.md`, `mcp.md`, `settings.md` and `troubleshooting.md`.
 
 ## Update and uninstall
 
 ```bash
 magenta update self               # update to the latest release
-magenta update --version 0.5.2    # install an exact release, older or newer
+magenta update --version 0.5.3    # install an exact release, older or newer
 magenta update --rollback         # restore the previous installation
 ```
 
@@ -279,7 +293,7 @@ Uninstalling removes only the installed release and its `PATH` entry. Your setti
 | Downloads are slow | Set `MAGENTA_GITHUB_MIRROR` (see [Networks in mainland China](#networks-in-mainland-china)) and run the installer or `magenta update self` again. |
 | Verification failed | The download was corrupted or altered. Run the installer again; it never activates an unverified file. |
 | An old version cannot update itself | Releases from before the current asset layout cannot install new ones. Run the installation command again. |
-| Sign-in, model or tool problems | Run `magenta --validate-config` to check credentials, models and resources without calling a model, and `magenta --verbose` for startup details. `troubleshooting.md` in the [documentation folder](#documentation) covers more cases. |
+| Sign-in, model or tool problems | Run `magenta doctor` for a read-only health report, `magenta --validate-config` to check credentials, models and resources without calling a model, and `magenta --verbose` for startup details. `troubleshooting.md` in the [documentation folder](#documentation) covers more cases. |
 
 ## Get help
 

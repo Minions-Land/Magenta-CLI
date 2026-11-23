@@ -53,7 +53,7 @@ Magenta 是一个终端编程 Agent。在项目目录中启动它，描述你想
 - **可审计的文件。** 可将对话导出为会话 JSONL（可在 CLI 中打开）或自包含的 HTML 文件，并可导入会话 JSONL。
 - **网页搜索** 优先使用提供商自带的搜索（OpenAI、Anthropic），否则可用你自己的 Tavily key。
 
-浏览器版无法访问你的电脑。订阅登录（ChatGPT 套餐）、读取和编辑项目及运行命令的工具、Package、记忆以及自动上下文压缩都需要 CLI：先[安装](#安装)，再运行 `magenta`（`magenta web` 是由你本机提供的同一套界面，将随下一个版本发布）。
+浏览器版无法访问你的电脑。订阅登录（ChatGPT 套餐）、读取和编辑项目及运行命令的工具、Package、记忆以及自动上下文压缩都需要 CLI：先[安装](#安装)，再运行 `magenta`；也可以运行 `magenta web`，在本机提供同一套界面。
 
 ## 安装
 
@@ -108,7 +108,7 @@ try {
 magenta --version
 ```
 
-会输出已安装的版本号，例如 `0.5.3`。`magenta --help` 列出全部选项，开头如下：
+会输出已安装的版本号，例如 `0.6.0`。`magenta --help` 列出全部选项，开头如下：
 
 ```text
 Magenta - AI coding assistant with file, shell, and background work tools
@@ -125,8 +125,14 @@ Commands:
   magenta list                      List installed extensions from settings
   magenta config                    Open TUI to enable/disable package resources
   magenta relay <command>           Add, start, stop, inspect, or diagnose SSH mailbox relays
-  magenta hcp check <package-root>  Validate one local Harness Package
-  magenta <command> --help          Show help for install/remove/uninstall/update/list/relay/hcp
+  magenta hcp check <package-root>  Validate one local Harness Package (all profiles; --profile, --assemble)
+  magenta hcp list | prune [--yes]  Show the Harness Package cache; prune it and the local component store (dry run without --yes)
+  magenta hcp use | status | reset | log | diff | rollback  Local HCP components: select, inspect, history (--scope user|project|session)
+  magenta hcp contract | schema | types | new | check --conformance  Author local HCP components
+  magenta doctor [--json]           Read-only health report (install, config, credentials, network)
+  magenta checkpoints list | restore <n> [--force]  List or restore file checkpoints (--harness-file-checkpoints)
+  magenta web [--port <n>] [--no-open]  Local web chat UI on 127.0.0.1 (web Tools only; see docs/web.md)
+  magenta <command> --help          Show help for install/remove/uninstall/update/list/relay/hcp/doctor/checkpoints/web
 ```
 
 > [!NOTE]
@@ -166,7 +172,7 @@ $env:MAGENTA_GITHUB_MIRROR = "https://ghfast.top"
    magenta
    ```
 
-2. **登录或添加 key。** 输入 `/login`，选择订阅登录（例如 *ChatGPT Plus/Pro (Codex)* 或 *GitHub Copilot*）或某个 API key 提供商。凭据保存在 `~/.magenta/agent/auth.json`。也可以使用环境变量：
+2. **登录或添加 key。** 输入 `/login`，选择订阅登录（例如 *ChatGPT sign-in for Magenta*、*Codex sign-in* 或 *GitHub Copilot*）、某个 API key 提供商，或填写 endpoint URL 及其 key。`/login chatgpt` 和 `/login codex` 可直接进入这两种 OpenAI 套餐登录；Codex 登录使用设备码，因此在 SSH 下也能用。凭据保存在 `~/.magenta/agent/auth.json`。也可以使用环境变量：
 
    ```bash
    export OPENAI_API_KEY=...      # 或 ANTHROPIC_API_KEY、GEMINI_API_KEY 等
@@ -192,23 +198,30 @@ Magenta 会读取项目中的 `AGENTS.md`（以及 `CLAUDE.md`）作为项目说
 ## 功能
 
 > [!IMPORTANT]
-> 本节描述最新发布的版本 **v0.5.3**。各版本的变化见 [Release 说明](https://github.com/Minions-Land/Magenta-CLI/releases)；功能只有在发布后才会出现在这里。
+> 本节描述最新发布的版本 **v0.6.0**。各版本的变化见 [Release 说明](https://github.com/Minions-Land/Magenta-CLI/releases)；功能只有在发布后才会出现在这里。
+
+**从 v0.5.x 升级：** 网页工具改名为 `web_search` 和 `web_fetch`（旧名 `web-search` / `web-fetch` 在 `--tools`、设置和工具策略中不再作为别名）；Claude 套餐登录已移除，请改用 Anthropic API key，或兼容的 endpoint 与 key（`/api`）。
 
 **Agent 与工具**
-- 文件工具（`read`、`edit`、`write`、`grep`、`find`）和 `bash`，以及与提供商无关的网页搜索和网页抓取工具。
+- 文件工具（`read`、`edit`、`write`、`grep`、`find`）和 `bash`，以及与提供商无关的 `web_search` 和 `web_fetch` 工具。
 - 后台命令（`bg_shell`）、并行子 Agent 和工作流（`sub_agent`，可设置费用和 token 预算），以及常驻队友（`multiagent`）。
 - 从 `off` 到 `ultra` 的推理档位（`--thinking`；界面中用 Shift+Tab）。
 - 精确控制模型可以调用什么：`--tools`、`--exclude-tools`、`--lock-tools`，以及 `--harness-<capability>` / `--no-harness-<capability>` 开关。它们控制工具可见性，不是操作系统级沙箱。
 
 **模型与提供商**
-- 通过 `/login` 订阅登录，从环境变量或 auth 文件读取 API key，并可复用受支持的 Claude Code / Codex key 文件。
-- 命名 API 路由（`/api`），每个 endpoint 与自己的 key 绑定。
+- 通过 `/login` 订阅登录，包括 OpenAI 套餐登录 `/login chatgpt` 和 `/login codex`，按账号列出可用模型；从环境变量或 auth 文件读取 API key，并可复用受支持的 Claude Code / Codex key 文件。
+- endpoint URL + API key 路由，可在 `/login` 或 `/api` 中设置，每个 endpoint 与自己的 key 绑定。
 - 提示缓存控制（`--cache-retention none|short|long|auto`）和可选的本地缓存统计。
 
 **会话**
 - 会话按项目保存：继续（`-c`）、恢复（`-r`、`/resume`）、分叉，以及浏览会话树（`/tree`）。
-- 长会话自动压缩上下文。
+- 长会话自动压缩上下文；压缩摘要默认从提示缓存读取对话（`compaction.summaryCache`）。
+- 文件检查点（需开启，`--harness-file-checkpoints`）：`/rewind` 可撤销之前任一轮的文件改动，可选是否连同对话一起回退；命令行中用 `magenta checkpoints` 完成同样操作。
+- 上下文召回（需开启，`--harness-context-recall`）：`context_recall` 工具可原文取回本会话中的内容（包括已被压缩掉的轮次），也可选择检索本项目过去的会话。上下文共享（需开启，`--harness-context-share`）可把这些原文直接交给子 Agent 和队友。
 - 用 `/export` 或 `magenta --export <session-file>` 把会话导出为独立的 HTML 文件。
+
+**浏览器**
+- `magenta web` 在 127.0.0.1 上打开本地浏览器聊天，与 CLI 使用同一套会话运行时，只提供固定的网页工具（没有 shell 和文件工具）。[网页版](https://minions-land.github.io/Magenta-CLI/app/)无需安装，使用你自己的 key 或 endpoint。两者都支持英文和简体中文。
 
 **自动化与集成**
 - 一次性模式（`-p`）、JSON 事件输出、RPC 和 app-server 模式（`--mode json|rpc|app-server`）。
@@ -232,7 +245,8 @@ Magenta 的内置工具和行为通过 **Harness Component Protocol（HCP）** �
   ```
 
   下载内容会用 Release 中的 `.sha256` 文件校验，并记录每个版本首次校验通过的摘要，被悄悄替换的压缩包会被拒绝。也可以加上 `#sha256=<hex>` 自行固定摘要。
-- **构建自己的 Package。** `magenta hcp check <package-root>` 校验本地 Package；`magenta --harness-list` 显示正在使用的组件和 Source。
+- **构建自己的 Package。** `magenta hcp check <package-root>` 校验本地 Package；`magenta --harness-list` 显示正在使用的组件和 Source。Package 可以向 `/` 菜单添加条目；菜单协议 v2 支持带类型的参数、条件、状态标记和能力开关。
+- **用自己的实现替换内置工具。** `magenta hcp use` 可把开放的内置工具（`grep`、`read`、`ls`、`find`、`web_fetch`、`web_search`）背后的实现换成你自己的本地 Source，作用范围可以是你的用户、某个项目或单个会话。每次替换都需要你在终端中输入摘要确认；`magenta hcp log` 和 `magenta hcp rollback` 保留历史并可撤销更改。开启 `--harness-hcp-propose`（默认关闭）后，Agent 可以提议组件，但只有你能批准。
 - **更轻量的扩展。** `magenta install <source>` 可添加扩展、技能、提示模板和主题；MCP 服务器在 `~/.magenta/agent/mcp-servers.json` 中配置。
 
 ### 文档
@@ -244,13 +258,13 @@ Magenta 的内置工具和行为通过 **Harness Component Protocol（HCP）** �
 | macOS / Linux | `~/.local/lib/magenta/docs/` |
 | Windows | `%LOCALAPPDATA%\Magenta\docs\` |
 
-从 `index.md` 和 `quickstart.md` 开始。上面提到的主题可参阅 `providers.md`（登录、API key、`/api`）、`usage.md`、`sessions.md`、`harness-packages.md`、`packages.md`、`mcp.md`、`settings.md` 和 `troubleshooting.md`。文档目前为英文。
+从 `index.md` 和 `quickstart.md` 开始。上面提到的主题可参阅 `providers.md`（登录、API key、`/api`）、`usage.md`、`sessions.md`、`web.md`、`file-checkpoints.md`、`context-recall.md`、`context-sharing.md`、`compaction.md`、`harness-packages.md`、`packages.md`、`mcp.md`、`settings.md` 和 `troubleshooting.md`。文档目前为英文。
 
 ## 更新与卸载
 
 ```bash
 magenta update self               # 更新到最新版本
-magenta update --version 0.5.2    # 安装指定版本（更旧或更新均可）
+magenta update --version 0.5.3    # 安装指定版本（更旧或更新均可）
 magenta update --rollback         # 恢复到上一个安装
 ```
 
@@ -279,7 +293,7 @@ rm -f "$bootstrap"
 | 下载很慢 | 设置 `MAGENTA_GITHUB_MIRROR`（见[中国大陆网络](#中国大陆网络)），然后重新运行安装脚本或 `magenta update self`。 |
 | 校验失败 | 下载内容损坏或被篡改。重新运行安装脚本；它绝不会启用未通过校验的文件。 |
 | 旧版本无法自更新 | 当前资源布局之前的旧版本无法安装新版本。请重新运行安装命令。 |
-| 登录、模型或工具问题 | 运行 `magenta --validate-config` 检查凭据、模型和资源（不调用模型），用 `magenta --verbose` 查看启动详情。[文档目录](#文档)中的 `troubleshooting.md` 涵盖更多情况。 |
+| 登录、模型或工具问题 | 运行 `magenta doctor` 查看只读的健康报告，运行 `magenta --validate-config` 检查凭据、模型和资源（不调用模型），用 `magenta --verbose` 查看启动详情。[文档目录](#文档)中的 `troubleshooting.md` 涵盖更多情况。 |
 
 ## 获取帮助
 
