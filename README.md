@@ -108,7 +108,7 @@ This installs to `%LOCALAPPDATA%\Magenta` and adds it to your user `PATH`; open 
 magenta --version
 ```
 
-prints the installed version, for example `0.6.0`. `magenta --help` lists every option; it starts like this:
+prints the installed version, for example `0.7.0`. `magenta --help` lists every option; it starts like this:
 
 ```text
 Magenta - AI coding assistant with file, shell, and background work tools
@@ -131,8 +131,9 @@ Commands:
   magenta hcp contract | schema | types | new | check --conformance  Author local HCP components
   magenta doctor [--json]           Read-only health report (install, config, credentials, network)
   magenta checkpoints list | restore <n> [--force]  List or restore file checkpoints (--harness-file-checkpoints)
+  magenta sessions search <query> [--all]  Search saved Session transcripts, tool results included
   magenta web [--port <n>] [--no-open]  Local web chat UI on 127.0.0.1 (web Tools only; see docs/web.md)
-  magenta <command> --help          Show help for install/remove/uninstall/update/list/relay/hcp/doctor/checkpoints/web
+  magenta <command> --help          Show help for install/remove/uninstall/update/list/relay/hcp/doctor/checkpoints/sessions/web
 ```
 
 > [!NOTE]
@@ -193,18 +194,28 @@ The mirror is used only for the executable and the resources archive. Release me
 
    For a one-shot run that prints the answer and exits, use `magenta -p "..."`. Continue the last session with `magenta -c`, or pick one with `magenta -r`.
 
-Magenta reads `AGENTS.md` (and `CLAUDE.md`) from your project for project instructions. Project-local files are trusted per project: use `/trust`, or `--approve` / `--no-approve` for one run.
+Magenta reads `AGENTS.md` (and `CLAUDE.md`) from your project for project instructions. Project-local files, including these instruction files, are trusted per project: use `/trust`, or `--approve` / `--no-approve` for one run. In a project that needs a trust decision and has none, non-interactive runs (`-p`, JSON, RPC, app server) load only your global instruction files.
 
 ## Features
 
 > [!IMPORTANT]
-> This section describes the latest published release, **v0.6.0**. See the [release notes](https://github.com/Minions-Land/Magenta-CLI/releases) for what changed in each version; features appear here only once they are released.
+> This section describes the latest published release, **v0.7.0**. See the [release notes](https://github.com/Minions-Land/Magenta-CLI/releases) for what changed in each version; features appear here only once they are released.
 
-**Upgrading from v0.5.x:** the web tools are now called `web_search` and `web_fetch` (the old `web-search` / `web-fetch` names are not aliases in `--tools`, settings or tool policies), and Claude plan sign-in is removed: use an Anthropic API key or a compatible endpoint and key (`/api`).
+**Upgrading from v0.6.x:**
+- The `terminal`, `lsp` and `bg_shell` tools are removed. Run interactive programs inside `tmux` through `bash`; slow `bash` commands still move to the background on their own, and `stop_bash` stops one. `--tools` now reports a removed tool as unknown.
+- `create_notebook` and `add_cell` moved into the `AutOmicScience` and `PantheonOS` Harness Packages (same names and arguments) and need `python3` on `PATH`.
+- The `memory_retain`, `memory_recall` and `memory_forget` tools and their `.magenta/memory/` store are replaced by file memory. Magenta no longer reads the old store; copy any note worth keeping into the new memory folder (`/memory` shows it) and delete `.magenta/memory/`.
+- `todo` now takes the complete list on every call and is on by default; todo lists saved by earlier versions are not restored.
+- Project `AGENTS.md` / `CLAUDE.md` files follow project trust: in a project that needs a trust decision and has none, print, JSON, RPC and app-server runs load only the global instruction files. Pass `--approve` or trust the project.
+- `--validate-config` exits with status 1 for unknown, mistyped or out-of-range settings, and a print or JSON run stopped after repeated invalid tool calls ends with `status: "error"` and exit code 1. `steer` and `follow_up` sent to an idle session over RPC, the app server or the SDK now start a turn.
+- The first request after upgrading rebuilds the prompt cache once, because the default tool set and system prompt changed.
+
+From v0.5.x, also note that the web tools are called `web_search` and `web_fetch` (the old `web-search` / `web-fetch` names are not aliases), and Claude plan sign-in is removed: use an Anthropic API key or a compatible endpoint and key (`/api`).
 
 **Agent and tools**
 - File tools (`read`, `edit`, `write`, `grep`, `find`) and `bash`, plus provider-neutral `web_search` and `web_fetch` tools.
-- Background commands (`bg_shell`), parallel sub-agents and workflows (`sub_agent`, with optional cost and token budgets), and persistent teammates (`multiagent`).
+- A Claude Code–style `todo` list in the default tool set, docked between the transcript and the editor (`Alt+T` or `/todo` collapses it).
+- Slow `bash` commands move to the background on their own and write their full output to a log file; `stop_bash` stops one. Parallel sub-agents and workflows (`sub_agent`, with optional cost and token budgets), and persistent teammates (`multiagent`).
 - Reasoning profiles from `off` to `ultra` (`--thinking`; Shift+Tab in the interface).
 - Precise control of what the model may call: `--tools`, `--exclude-tools`, `--lock-tools`, and `--harness-<capability>` / `--no-harness-<capability>` switches. These control tool visibility; they are not an operating-system sandbox.
 
@@ -212,12 +223,18 @@ Magenta reads `AGENTS.md` (and `CLAUDE.md`) from your project for project instru
 - Subscription sign-in through `/login`, including the OpenAI plan sign-ins `/login chatgpt` and `/login codex` with models listed per account; API keys from the environment or the auth file, and reuse of supported Claude Code / Codex key files.
 - Endpoint URL + API key routes, set up from `/login` or `/api`, each pinned to its own key.
 - Prompt-cache controls (`--cache-retention none|short|long|auto`) and optional local cache telemetry.
+- OpenAI: tool calls no longer fill every optional parameter (function tools are sent with `strict: false` on the official endpoint and Codex sign-in), and new sessions on the official endpoint start with a warm prompt cache.
+
+**Working alongside the agent**
+- Side questions: `/btw <question>` is answered by a read-only fork of the conversation while the agent keeps working, reusing its prompt cache; you decide whether the answer reaches the main agent, or promote it to a background task.
+- Send now (Ctrl+Enter or Alt+S) interrupts the reply, or moves a running `bash` command to the background, and delivers your message at once. Queued messages are no longer lost when you switch sessions.
+- File memory, on by default in interactive sessions: each repository has Markdown memory files the model keeps with its ordinary file tools, and an index loaded at session start. `/memory` opens them or switches memory off (`--no-harness-memory`, `harness.memory: false`). Memory is off in print, JSON, RPC and app-server runs.
 
 **Sessions**
-- Sessions are saved per project: continue (`-c`), resume (`-r`, `/resume`), fork, and navigate the session tree (`/tree`).
-- Automatic context compaction for long sessions; compaction summaries read the conversation from the prompt cache by default (`compaction.summaryCache`).
+- Sessions are saved per project: continue (`-c`), resume (`-r`, `/resume`), fork, and navigate the session tree (`/tree`). `magenta sessions search <query>` and a full-transcript search in `/resume` find past sessions by anything they contain.
+- Automatic context compaction for long sessions: the summary is prepared in the background during long runs and installed without a wait, also while idle just before the prompt cache expires. Recently used files are re-read into the new context window.
 - File checkpoints (opt-in, `--harness-file-checkpoints`): `/rewind` undoes the file changes of any earlier turn, with or without the conversation; `magenta checkpoints` does the same from the command line.
-- Context recall (opt-in, `--harness-context-recall`): the `context_recall` tool fetches exact text from the session, including turns removed by compaction, and optionally from past sessions of the project. Context sharing (opt-in, `--harness-context-share`) passes that text verbatim to sub-agents and teammates.
+- Context recall (on by default): the `context_recall` tool fetches exact text from the session, including turns removed by compaction, and optionally from past sessions of the project. Context sharing (opt-in, `--harness-context-share`) passes that text verbatim to sub-agents and teammates.
 - Export a session to a self-contained HTML file with `/export` or `magenta --export <session-file>`.
 
 **Browser**
@@ -258,13 +275,13 @@ Every release ships its full user documentation in the resources archive, and th
 | macOS / Linux | `~/.local/lib/magenta/docs/` |
 | Windows | `%LOCALAPPDATA%\Magenta\docs\` |
 
-Start with `index.md` and `quickstart.md`. For the topics above, see `providers.md` (sign-in, API keys, `/api`), `usage.md`, `sessions.md`, `web.md`, `file-checkpoints.md`, `context-recall.md`, `context-sharing.md`, `compaction.md`, `harness-packages.md`, `packages.md`, `mcp.md`, `settings.md` and `troubleshooting.md`.
+Start with `index.md` and `quickstart.md`. For the topics above, see `providers.md` (sign-in, API keys, `/api`), `usage.md`, `sessions.md`, `memory.md`, `todo-list.md`, `async.md`, `web.md`, `file-checkpoints.md`, `context-recall.md`, `context-sharing.md`, `compaction.md`, `harness-packages.md`, `packages.md`, `mcp.md`, `settings.md` and `troubleshooting.md`.
 
 ## Update and uninstall
 
 ```bash
 magenta update self               # update to the latest release
-magenta update --version 0.5.3    # install an exact release, older or newer
+magenta update --version 0.6.0    # install an exact release, older or newer
 magenta update --rollback         # restore the previous installation
 ```
 

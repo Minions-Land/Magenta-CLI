@@ -108,7 +108,7 @@ try {
 magenta --version
 ```
 
-会输出已安装的版本号，例如 `0.6.0`。`magenta --help` 列出全部选项，开头如下：
+会输出已安装的版本号，例如 `0.7.0`。`magenta --help` 列出全部选项，开头如下：
 
 ```text
 Magenta - AI coding assistant with file, shell, and background work tools
@@ -131,8 +131,9 @@ Commands:
   magenta hcp contract | schema | types | new | check --conformance  Author local HCP components
   magenta doctor [--json]           Read-only health report (install, config, credentials, network)
   magenta checkpoints list | restore <n> [--force]  List or restore file checkpoints (--harness-file-checkpoints)
+  magenta sessions search <query> [--all]  Search saved Session transcripts, tool results included
   magenta web [--port <n>] [--no-open]  Local web chat UI on 127.0.0.1 (web Tools only; see docs/web.md)
-  magenta <command> --help          Show help for install/remove/uninstall/update/list/relay/hcp/doctor/checkpoints/web
+  magenta <command> --help          Show help for install/remove/uninstall/update/list/relay/hcp/doctor/checkpoints/sessions/web
 ```
 
 > [!NOTE]
@@ -193,18 +194,28 @@ $env:MAGENTA_GITHUB_MIRROR = "https://ghfast.top"
 
    一次性执行并输出结果后退出：`magenta -p "..."`。继续上一个会话：`magenta -c`；选择一个会话恢复：`magenta -r`。
 
-Magenta 会读取项目中的 `AGENTS.md`（以及 `CLAUDE.md`）作为项目说明。项目本地文件按项目信任：使用 `/trust`，或用 `--approve` / `--no-approve` 只对本次运行生效。
+Magenta 会读取项目中的 `AGENTS.md`（以及 `CLAUDE.md`）作为项目说明。项目本地文件（包括这些说明文件）按项目信任：使用 `/trust`，或用 `--approve` / `--no-approve` 只对本次运行生效。对于需要信任决定但尚未做出决定的项目，非交互运行（`-p`、JSON、RPC、app server）只加载你的全局说明文件。
 
 ## 功能
 
 > [!IMPORTANT]
-> 本节描述最新发布的版本 **v0.6.0**。各版本的变化见 [Release 说明](https://github.com/Minions-Land/Magenta-CLI/releases)；功能只有在发布后才会出现在这里。
+> 本节描述最新发布的版本 **v0.7.0**。各版本的变化见 [Release 说明](https://github.com/Minions-Land/Magenta-CLI/releases)；功能只有在发布后才会出现在这里。
 
-**从 v0.5.x 升级：** 网页工具改名为 `web_search` 和 `web_fetch`（旧名 `web-search` / `web-fetch` 在 `--tools`、设置和工具策略中不再作为别名）；Claude 套餐登录已移除，请改用 Anthropic API key，或兼容的 endpoint 与 key（`/api`）。
+**从 v0.6.x 升级：**
+- 移除了 `terminal`、`lsp` 和 `bg_shell` 工具。交互式程序请通过 `bash` 在 `tmux` 中运行；耗时的 `bash` 命令仍会自动转入后台，可用 `stop_bash` 停止。`--tools` 现在会把已移除的工具报告为未知工具。
+- `create_notebook` 和 `add_cell` 移入 `AutOmicScience` 和 `PantheonOS` 这两个 Harness Package（名称和参数不变），需要 `PATH` 上有 `python3`。
+- `memory_retain`、`memory_recall`、`memory_forget` 工具及其 `.magenta/memory/` 存储由文件记忆取代。Magenta 不再读取旧存储；如有值得保留的内容，请复制到新的记忆目录（`/memory` 会显示其位置），然后删除 `.magenta/memory/`。
+- `todo` 现在每次调用都传入完整列表，并默认开启；旧版本保存的待办列表不会恢复。
+- 项目中的 `AGENTS.md` / `CLAUDE.md` 遵循项目信任：对于需要信任决定但尚未做出决定的项目，print、JSON、RPC 和 app-server 运行只加载全局说明文件。请传入 `--approve` 或信任该项目。
+- `--validate-config` 遇到未知、类型错误或超出范围的设置时以状态码 1 退出；print 或 JSON 运行因反复出现无效工具调用而停止时，以 `status: "error"` 和退出码 1 结束。通过 RPC、app server 或 SDK 向空闲会话发送的 `steer` 和 `follow_up` 现在会开始一个新轮次。
+- 升级后的第一次请求会一次性重建提示缓存，因为默认工具集和系统提示有所变化。
+
+从 v0.5.x 升级还需注意：网页工具已改名为 `web_search` 和 `web_fetch`（旧名 `web-search` / `web-fetch` 不再作为别名）；Claude 套餐登录已移除，请改用 Anthropic API key，或兼容的 endpoint 与 key（`/api`）。
 
 **Agent 与工具**
 - 文件工具（`read`、`edit`、`write`、`grep`、`find`）和 `bash`，以及与提供商无关的 `web_search` 和 `web_fetch` 工具。
-- 后台命令（`bg_shell`）、并行子 Agent 和工作流（`sub_agent`，可设置费用和 token 预算），以及常驻队友（`multiagent`）。
+- Claude Code 风格的 `todo` 待办列表，属于默认工具集，停靠在对话记录和输入框之间（`Alt+T` 或 `/todo` 可折叠）。
+- 耗时的 `bash` 命令会自动转入后台，并把完整输出写入日志文件；`stop_bash` 可停止其中一个。并行子 Agent 和工作流（`sub_agent`，可设置费用和 token 预算），以及常驻队友（`multiagent`）。
 - 从 `off` 到 `ultra` 的推理档位（`--thinking`；界面中用 Shift+Tab）。
 - 精确控制模型可以调用什么：`--tools`、`--exclude-tools`、`--lock-tools`，以及 `--harness-<capability>` / `--no-harness-<capability>` 开关。它们控制工具可见性，不是操作系统级沙箱。
 
@@ -212,12 +223,18 @@ Magenta 会读取项目中的 `AGENTS.md`（以及 `CLAUDE.md`）作为项目说
 - 通过 `/login` 订阅登录，包括 OpenAI 套餐登录 `/login chatgpt` 和 `/login codex`，按账号列出可用模型；从环境变量或 auth 文件读取 API key，并可复用受支持的 Claude Code / Codex key 文件。
 - endpoint URL + API key 路由，可在 `/login` 或 `/api` 中设置，每个 endpoint 与自己的 key 绑定。
 - 提示缓存控制（`--cache-retention none|short|long|auto`）和可选的本地缓存统计。
+- OpenAI：工具调用不再填满所有可选参数（在官方 endpoint 和 Codex 登录下，函数工具以 `strict: false` 发送）；官方 endpoint 上的新会话一开始就能命中提示缓存。
+
+**与 Agent 并行协作**
+- 旁路提问：`/btw <question>` 由对话的只读分支回答，Agent 同时继续工作，并复用它的提示缓存；由你决定答案是否交给主 Agent，也可以把问题升级为后台任务。
+- 立即发送（Ctrl+Enter 或 Alt+S）会打断当前回复，或把正在运行的 `bash` 命令转入后台，然后立即送达你的消息。切换会话时，排队中的消息不再丢失。
+- 文件记忆，在交互式会话中默认开启：每个仓库都有一组 Markdown 记忆文件，由模型用普通文件工具维护，会话开始时加载其索引。`/memory` 可打开这些文件或关闭记忆（`--no-harness-memory`、`harness.memory: false`）。print、JSON、RPC 和 app-server 运行中记忆保持关闭。
 
 **会话**
-- 会话按项目保存：继续（`-c`）、恢复（`-r`、`/resume`）、分叉，以及浏览会话树（`/tree`）。
-- 长会话自动压缩上下文；压缩摘要默认从提示缓存读取对话（`compaction.summaryCache`）。
+- 会话按项目保存：继续（`-c`）、恢复（`-r`、`/resume`）、分叉，以及浏览会话树（`/tree`）。`magenta sessions search <query>` 和 `/resume` 中的全文搜索可按任意内容找到过去的会话。
+- 长会话自动压缩上下文：长时间运行时摘要在后台预先准备，到时直接安装、无需等待；空闲时也会在提示缓存即将过期前安装。最近用过的文件会重新读入新的上下文窗口。
 - 文件检查点（需开启，`--harness-file-checkpoints`）：`/rewind` 可撤销之前任一轮的文件改动，可选是否连同对话一起回退；命令行中用 `magenta checkpoints` 完成同样操作。
-- 上下文召回（需开启，`--harness-context-recall`）：`context_recall` 工具可原文取回本会话中的内容（包括已被压缩掉的轮次），也可选择检索本项目过去的会话。上下文共享（需开启，`--harness-context-share`）可把这些原文直接交给子 Agent 和队友。
+- 上下文召回（默认开启）：`context_recall` 工具可原文取回本会话中的内容（包括已被压缩掉的轮次），也可选择检索本项目过去的会话。上下文共享（需开启，`--harness-context-share`）可把这些原文直接交给子 Agent 和队友。
 - 用 `/export` 或 `magenta --export <session-file>` 把会话导出为独立的 HTML 文件。
 
 **浏览器**
@@ -258,13 +275,13 @@ Magenta 的内置工具和行为通过 **Harness Component Protocol（HCP）** �
 | macOS / Linux | `~/.local/lib/magenta/docs/` |
 | Windows | `%LOCALAPPDATA%\Magenta\docs\` |
 
-从 `index.md` 和 `quickstart.md` 开始。上面提到的主题可参阅 `providers.md`（登录、API key、`/api`）、`usage.md`、`sessions.md`、`web.md`、`file-checkpoints.md`、`context-recall.md`、`context-sharing.md`、`compaction.md`、`harness-packages.md`、`packages.md`、`mcp.md`、`settings.md` 和 `troubleshooting.md`。文档目前为英文。
+从 `index.md` 和 `quickstart.md` 开始。上面提到的主题可参阅 `providers.md`（登录、API key、`/api`）、`usage.md`、`sessions.md`、`memory.md`、`todo-list.md`、`async.md`、`web.md`、`file-checkpoints.md`、`context-recall.md`、`context-sharing.md`、`compaction.md`、`harness-packages.md`、`packages.md`、`mcp.md`、`settings.md` 和 `troubleshooting.md`。文档目前为英文。
 
 ## 更新与卸载
 
 ```bash
 magenta update self               # 更新到最新版本
-magenta update --version 0.5.3    # 安装指定版本（更旧或更新均可）
+magenta update --version 0.6.0    # 安装指定版本（更旧或更新均可）
 magenta update --rollback         # 恢复到上一个安装
 ```
 
