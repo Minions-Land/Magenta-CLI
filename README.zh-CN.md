@@ -108,7 +108,7 @@ try {
 magenta --version
 ```
 
-会输出已安装的版本号，例如 `0.7.0`。`magenta --help` 列出全部选项，开头如下：
+会输出已安装的版本号，例如 `0.7.1`。`magenta --help` 列出全部选项，开头如下：
 
 ```text
 Magenta - AI coding assistant with file, shell, and background work tools
@@ -199,7 +199,7 @@ Magenta 会读取项目中的 `AGENTS.md`（以及 `CLAUDE.md`）作为项目说
 ## 功能
 
 > [!IMPORTANT]
-> 本节描述最新发布的版本 **v0.7.0**。各版本的变化见 [Release 说明](https://github.com/Minions-Land/Magenta-CLI/releases)；功能只有在发布后才会出现在这里。
+> 本节描述最新发布的版本 **v0.7.1**。各版本的变化见 [Release 说明](https://github.com/Minions-Land/Magenta-CLI/releases)；功能只有在发布后才会出现在这里。
 
 **从 v0.6.x 升级：**
 - 移除了 `terminal`、`lsp` 和 `bg_shell` 工具。交互式程序请通过 `bash` 在 `tmux` 中运行；耗时的 `bash` 命令仍会自动转入后台，可用 `stop_bash` 停止。`--tools` 现在会把已移除的工具报告为未知工具。

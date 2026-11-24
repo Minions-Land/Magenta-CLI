@@ -108,7 +108,7 @@ This installs to `%LOCALAPPDATA%\Magenta` and adds it to your user `PATH`; open 
 magenta --version
 ```
 
-prints the installed version, for example `0.7.0`. `magenta --help` lists every option; it starts like this:
+prints the installed version, for example `0.7.1`. `magenta --help` lists every option; it starts like this:
 
 ```text
 Magenta - AI coding assistant with file, shell, and background work tools
@@ -199,7 +199,7 @@ Magenta reads `AGENTS.md` (and `CLAUDE.md`) from your project for project instru
 ## Features
 
 > [!IMPORTANT]
-> This section describes the latest published release, **v0.7.0**. See the [release notes](https://github.com/Minions-Land/Magenta-CLI/releases) for what changed in each version; features appear here only once they are released.
+> This section describes the latest published release, **v0.7.1**. See the [release notes](https://github.com/Minions-Land/Magenta-CLI/releases) for what changed in each version; features appear here only once they are released.
 
 **Upgrading from v0.6.x:**
 - The `terminal`, `lsp` and `bg_shell` tools are removed. Run interactive programs inside `tmux` through `bash`; slow `bash` commands still move to the background on their own, and `stop_bash` stops one. `--tools` now reports a removed tool as unknown.
